@@ -3,9 +3,9 @@ package models
 import (
 	"errors"
 	"fmt"
+	"github.com/tiredkangaroo/sculpt/Log"
+	"github.com/tiredkangaroo/sculpt/Manager"
 	"math/rand/v2"
-	"sculpt/Log"
-	"sculpt/Manager"
 )
 
 type IDField struct {
