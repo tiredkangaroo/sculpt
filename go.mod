@@ -1,4 +1,4 @@
-module sculpt
+module github.com/tiredkangaroo/sculpt 0.0.1
 
 go 1.22.2
 
