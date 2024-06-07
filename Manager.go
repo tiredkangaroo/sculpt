@@ -1,4 +1,4 @@
-package Manager
+package sculpt
 
 import (
 	"database/sql"
@@ -7,7 +7,6 @@ import (
 )
 
 var DB *sql.DB
-var RequiredConnectionError string = "RequiredConnectionError: There must be connected database to run the %s operation."
 
 func Connected() bool {
 	return DB != nil
