@@ -30,8 +30,8 @@ type Query struct {
 }
 
 type Result struct {
-	Statement      string
-	PopulatedModel []Model
+	Statement       string
+	PopulatedModels []Model
 }
 
 type Field interface {
@@ -348,8 +348,8 @@ func (m *Model) Get(q *Query) (Result, error) {
 		h = append(h, newModel)
 	}
 	return Result{
-		Statement:      statement,
-		PopulatedModel: h,
+		Statement:       statement,
+		PopulatedModels: h,
 	}, nil
 }
 
