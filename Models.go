@@ -2,21 +2,11 @@ package sculpt
 
 import (
 	"fmt"
-	"math/rand/v2"
 )
-
-func GenerateUID() string {
-	id := ""
-	for range 10 {
-		r := rand.IntN(25) + 1
-		id += fmt.Sprintf("%c", ('A' - 1 + r))
-	}
-	id += fmt.Sprintf("%02d", rand.IntN(26))
-	return id
-}
 
 type PopulatedFields = []Field
 
+// Model
 type Model struct {
 	Name   string
 	Fields []Field
@@ -39,14 +29,14 @@ type Field interface {
 	IS_UNIQUE() bool
 	Name() string
 	Kind() string
-	// Populate(string) error
+	// Populate(any) error
 }
 
 type IDField struct {
 	PRIMARY_KEY    bool
 	UNIQUE         bool
-	ColumnName     string //Column Name
-	Auto           bool   //Automatically populate with a random id?
+	ColumnName     string
+	Auto           bool
 	PopulatedValue string
 }
 
@@ -66,6 +56,7 @@ type IntegerField struct {
 	PopulatedValue int
 }
 
+// NewModel provides a function to create a new Model object.
 func NewModel(name string, values ...Field) (m *Model) {
 	return &Model{
 		Name:   name,
@@ -73,20 +64,38 @@ func NewModel(name string, values ...Field) (m *Model) {
 	}
 }
 
+// IS_PRIMARY_KEY provides an interface to check if it is
+// the primary key on the model that it is on.
 func (idf IDField) IS_PRIMARY_KEY() bool {
 	return idf.PRIMARY_KEY
 }
+
+// IS_UNIQUE provides an interface to check if it is
+// unique on the model that it is on.
 func (idf IDField) IS_UNIQUE() bool {
 	return idf.UNIQUE
 }
+
+// Name provides an interface to return the name
+// the
 func (idf IDField) Name() string {
 	return idf.ColumnName
 }
+
 func (idf IDField) Value() string {
 	return idf.PopulatedValue
 }
 func (idf IDField) Kind() string {
 	return "idfield"
+}
+func (idf IDField) Populate(value any) error {
+	switch value.(type) {
+	case string:
+		break
+	default:
+		return FieldTypeMismatch(idf.Name(), "string")
+	}
+	return nil
 }
 
 func (tf TextField) IS_PRIMARY_KEY() bool {
@@ -121,6 +130,7 @@ func (inf IntegerField) Kind() string {
 	return "integerfield"
 }
 
+// used in models.go/New
 func getKind(v interface{}) string {
 	switch v.(type) {
 	case string:
@@ -136,7 +146,7 @@ func getKind(v interface{}) string {
 // if ifNotExists is true, the table will only be created if it does not already exist.
 func (entity *Model) Create(ifNotExists bool) error {
 	if !Connected() {
-		return ErrorFromCode("L35Z", "create table")
+		return OperationRequiresDatabaseConnection("create table")
 	}
 	statement := "CREATE TABLE "
 	if ifNotExists {
@@ -174,11 +184,12 @@ func (entity *Model) Create(ifNotExists bool) error {
 		}
 	}
 	statement += ");"
-	Statement(statement)
+	LogStatement(statement)
 	_, err := DB.Exec(statement)
 	return err
 }
 
+// new model ready for population
 func (m *Model) New(pv map[string]interface{}) (Model, error) {
 	var PopulatedFields PopulatedFields
 	for _, f := range m.Fields {
@@ -189,7 +200,7 @@ func (m *Model) New(pv map[string]interface{}) (Model, error) {
 				if f.(IDField).Auto {
 					valueSetForField = GenerateUID()
 				} else {
-					return Model{}, ErrorFromCode("T90R", f.Name())
+					return Model{}, MissingFieldForPopulation(f.Name())
 				}
 			}
 		}
@@ -199,7 +210,7 @@ func (m *Model) New(pv map[string]interface{}) (Model, error) {
 		switch f.Kind() {
 		case "textfield":
 			if vSFFKind != "string" {
-				return Model{}, ErrorFromCode("R41P", f.Name())
+				return Model{}, FieldTypeMismatch(f.Name(), "string")
 			} else {
 				h := h.(TextField)
 				h.PopulatedValue = valueSetForField.(string)
@@ -207,7 +218,7 @@ func (m *Model) New(pv map[string]interface{}) (Model, error) {
 			}
 		case "integerfield":
 			if vSFFKind != "integer" {
-				return Model{}, ErrorFromCode("R41P", f.Name())
+				return Model{}, FieldTypeMismatch(f.Name(), "integer")
 			} else {
 				h := h.(IntegerField)
 				h.PopulatedValue = valueSetForField.(int)
@@ -215,7 +226,7 @@ func (m *Model) New(pv map[string]interface{}) (Model, error) {
 			}
 		case "idfield":
 			if vSFFKind != "idfield" {
-				return Model{}, ErrorFromCode("R41P", f.Name())
+				return Model{}, FieldTypeMismatch(f.Name(), "idfield")
 			} else {
 				h := h.(IDField)
 				h.PopulatedValue = valueSetForField.(string)
@@ -227,6 +238,7 @@ func (m *Model) New(pv map[string]interface{}) (Model, error) {
 	return Model{Name: m.Name, Fields: PopulatedFields}, nil
 }
 
+// function used within Models.go to construct "WHERE" in sql
 func where(w map[string]interface{}) string {
 	i := 0
 	statement := ""
@@ -251,6 +263,7 @@ func where(w map[string]interface{}) string {
 	return statement
 }
 
+// get from query
 func (m *Model) Get(q *Query) (Result, error) {
 	statement := "SELECT "
 	if q.DISTINCT == true {
@@ -275,7 +288,7 @@ func (m *Model) Get(q *Query) (Result, error) {
 		statement += q.Order_By
 	}
 	statement += ";"
-	Statement(statement)
+	LogStatement(statement)
 	result, err := DB.Query(statement)
 	if err != nil {
 		return Result{}, err
@@ -358,16 +371,16 @@ func (m *Model) Delete(w map[string]interface{}) error {
 	statement += m.Name
 	statement += " " + where(w)
 	statement += ";"
-	Statement(statement)
+	LogStatement(statement)
 	_, err := DB.Exec(statement)
 	return err
 }
 
-// Saves the current instance of Model into postgres (with values)
+// Save saves the current instance of Model into postgres with values.
 func (et *Model) Save() error {
-	statement := "INSERT INTO "
-	statement += et.Name
-	statement += " VALUES ("
+	statement := "INSERT INTO " // statement: INSERT INTO
+	statement += et.Name        // statement: INSERT INTO MY_TABLE
+	statement += " VALUES ("    // statement: INSERT INTO MY_TABLE VALUES(
 	fields := et.Fields
 	for j := 0; j < len(fields); j++ {
 		switch field := fields[j].(type) {
@@ -383,7 +396,7 @@ func (et *Model) Save() error {
 		}
 	}
 	statement += ");"
-	Statement(statement)
+	LogStatement(statement)
 	_, err := DB.Exec(statement)
 	return err
 }
