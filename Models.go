@@ -5,6 +5,17 @@ import (
 	"reflect"
 )
 
+type Model struct {
+	raw     any
+	Name    string
+	Columns []*Column
+}
+
+type Field = interface{}
+type IDField struct{}
+type IntegerField struct{}
+type TextField struct{}
+
 type Column struct {
 	PRIMARY_KEY bool
 	UNIQUE      bool
@@ -18,17 +29,11 @@ type Row struct {
 	Values map[string]any
 }
 
-type Field = interface{}
-type IDField struct{}
-type IntegerField struct{}
-type TextField struct{}
+type Condition = string
 
-type Model struct {
-	raw     any
-	Name    string
-	Columns []*Column
-}
-
+// NewModel creates a new pointer to a Model from the
+// passed in struct. See the reference on how to create
+// the struct.
 func NewModel(schema any) *Model {
 	st := reflect.TypeOf(schema)
 	sv := reflect.ValueOf(schema)
@@ -123,7 +128,7 @@ func (m *Model) NewRow(s any) (*Row, error) {
 	rawt := reflect.TypeOf(m.raw)
 	if sv.Type() != rawt {
 		LogInfo("%s %s", sv.Type(), rawt)
-		return nil, ModelTypeMismatch(sv.Type().Name(), rawt.Name())
+		return nil, ModelTypeMismatch(rawt.Name(), sv.Type().Name())
 	}
 
 	sv = sv.Elem()
@@ -150,6 +155,79 @@ func (m *Model) NewRow(s any) (*Row, error) {
 		}
 	}
 	return newRow, nil
+}
+
+func RunQuery[I any](m *Model, s I, query Query) ([]I, error) {
+	sv := reflect.ValueOf(s)
+
+	rawt := reflect.TypeOf(m.raw)
+	if rawt != sv.Type() {
+		return []I{}, ModelTypeMismatch(rawt.Name(), sv.Type().Name())
+	}
+
+	sv = sv.Elem()
+	st := reflect.TypeOf(s).Elem()
+
+	statement := "SELECT "
+	if query.Distinct {
+		statement += "DISTINCT "
+	}
+	if len(query.Columns) == 0 {
+		statement += "*"
+	}
+	for i, c := range query.Columns {
+		statement += c
+		if i+1 < len(query.Columns) {
+			statement += ", "
+		}
+	}
+	statement += " FROM " + m.Name
+	if len(query.Conditions) != 0 {
+		statement += " WHERE "
+		for i, c := range query.Conditions {
+			statement += c
+			if i+1 < len(query.Conditions) {
+				statement += " AND "
+			}
+		}
+	}
+	statement += ";"
+	rows, err := ActiveDB.Query(statement)
+	if err != nil {
+		return []I{}, err
+	}
+	defer rows.Close()
+	schemas := []I{}
+	for rows.Next() { // if there is no next it returns false and loop closes
+		newSchema := reflect.New(sv.Type())
+		nse := newSchema.Elem()
+		ptrs := []interface{}{}
+		for i := range nse.NumField() {
+			field := nse.Field(i)
+			fieldt := st.Field(i)
+			if len(query.Columns) == 0 { //SELECT *
+				ptrs = append(ptrs, field.Addr().Interface())
+				continue
+			}
+			for _, c := range query.Columns {
+				if fieldt.Name == c {
+					ptrs = append(ptrs, field.Addr().Interface())
+				}
+			}
+		}
+		err := rows.Scan(ptrs...)
+		if err != nil {
+			LogError("an error occured during scanning rows to schema: %s", err.Error())
+			continue
+		}
+		nsi, ok := newSchema.Interface().(I)
+		if !ok {
+			LogError("something went wrong")
+			continue
+		}
+		schemas = append(schemas, nsi)
+	}
+	return schemas, nil
 }
 
 func (m *Model) Save() error {

@@ -36,3 +36,14 @@ func ValidatorCannotBeUsedForKind(validatorName string, validatorKind interface{
 func ValidationFailed(validatorName string, columnName string, value any, err error) error {
 	return fmt.Errorf("validator %s failed population on column %s with value %s with error: %s", validatorName, columnName, value, err.Error())
 }
+
+func AnyToSQLString(value any) (string, error) {
+	switch v := value.(type) {
+	case string:
+		return fmt.Sprintf("'%s'", v), nil
+	case int:
+		return fmt.Sprintf("%d", v), nil
+	default:
+		return "", fmt.Errorf("type not supported")
+	}
+}
