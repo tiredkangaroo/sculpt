@@ -36,6 +36,12 @@ func ValidatorCannotBeUsedForKind(validatorName string, validatorKind interface{
 func ValidationFailed(validatorName string, columnName string, value any, err error) error {
 	return fmt.Errorf("validator %s failed population on column %s with value %s with error: %s", validatorName, columnName, value, err.Error())
 }
+func RowsAreEmpty() error {
+	return fmt.Errorf("while querying the sql database, the pointer to rows was nil.")
+}
+func UnknownTypeFromDatabase(_type string) error {
+	return fmt.Errorf("while parsing the sql database, we got an unknown type %s", _type)
+}
 
 func AnyToSQLString(value any) (string, error) {
 	switch v := value.(type) {

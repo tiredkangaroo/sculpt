@@ -8,6 +8,7 @@ var bold = "\033[1m"
 var normal = "\033[0m"
 var redbgWhiteF = "\033[41;37m"
 var yellowbgBlackF = "\033[43;30m"
+var greenbgBlackF = "\033[42;30m"
 var bluebgWhiteF = "\033[44;37m"
 
 var currentLogLevel LogLevel
@@ -33,12 +34,12 @@ func SetLogLevel(level LogLevel) {
 }
 
 func cprint(c string, r string, s string, a ...any) {
-	fmt.Println(c+bold+r+normal+":", fmt.Sprintf(s, a...)+normal)
+	fmt.Println(c+bold+r+normal, fmt.Sprintf(s, a...)+normal)
 }
 
-func LogInfo(s string, a ...any) {
+func LogInfo(application string, s string, a ...any) {
 	if currentLogLevel <= INFO {
-		cprint(bluebgWhiteF, "INFO", s, a...)
+		cprint(bluebgWhiteF, application, s, a...)
 	}
 }
 

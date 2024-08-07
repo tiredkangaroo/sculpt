@@ -7,124 +7,57 @@ The following provides documentation for the usage of Sculpt.
 
 Connecting to the Postgres Server:
 
-`err := sculpt.Manager.Connect(username, password, database_name)`
-
-Disconnecting to the Postgres Server:
-
-`err := sculpt.Manager.Disconnect()`
-
-## Supported Fields
-
-### ID Field
-`sculpt.models.IDField{}`
-
-ID Fields are required to have a maximum of 12 digits.
-
-```
-PRIMARY_KEY bool
-UNIQUE      bool //optional, default: false
-Name        string
-Auto        bool   //auto-populate with a random id?
-```
-### Text Field
-`sculpt.models.TextField{}`
-
-Options:
-```
-PRIMARY_KEY    bool   //optional, default: false
-UNIQUE         bool   //optional, default: false
-Name           string
-Minimum_Length int   //optional
-Maximum_Length int   //optional
-```
-### Integer Field
-`sculpt.models.IntegerField{}`
-
-Options:
-```
-PRIMARY_KEY bool //optional, default: false
-UNIQUE      bool //optional, default: false
-Name        string
+```golang
+err error := sculpt.Connect(username, password, database_name)
 ```
 
-## Operations
-### Creating a Model Instance:
+Disconnecting with the Postgres Server:
 
+```golang
+sculpt.Disconnect()
 ```
-myModelInstance := sculpt.models.Model{
-  Name: "your_model_name"
-  Fields: []interface{}{
-    //your fields here
-  }
+
+Checking the connection status:
+
+```golang
+connected bool := sculpt.Connected()
+```
+## Models
+Models implement tables in PostgreSQL in go.
+
+## Writing a Model
+
+```golang
+type ExampleModel struct {
+  ID   string `kind:"IDField"` // must specify
+  Name string // this defaults to TextField because the type is string
 }
+```
+Kinds:
+| Kind | Description |
+|-|-|
+| IDField | string with maxlength 32. auto-populated if left empty. |
+| TextField| string with maxlength 4096. |
+|IntegerField| integers only. |
 
+At this point, you have only created the schema. You may want to create
+the model now.
+
+```golang
+exampleModel := sculpt.NewModel(new(ExampleModel))
 ```
 
-### Creating a Table from a Model Instance:
+The NewModel function does not return an error, instead it panics in the
+rare case there is an error.
 
-```
-err := myModelInstance.Create()
-```
+panic messages and what they mean:
 
-Options:
+| Message | Meaning |
+| ------ | ------|
+| schema must be POINTER to struct | whatever you passed in is not a pointer |
+| schema must be pointer to STRUCT | you passed in a pointer, but it wasn't a pointer to a struct |
+| type for IDField must be string | you set the kind to IDField but the type of the structfield was not a string|
+| type for TextField must be string | you set the kind to TextField but the type of the structfield was not a string|
+| type for IntegerField must be int, int8, int16, int32, int64 | you set the kind to IntegerField but the type of the structfield was not any of the int's.|
 
-(REQUIRED) `ifNotExists bool` 
-
-Create the table in the database only if it does not already exist.
-
-### Creating a Row from a Model Instance:
-```
-newRow, err := myModelInstance.New()
-```
-
-Options:
-(REQUIRED) Every field in order must be passed into the function.
-
-
-### Saving a New Row:
-
-`err := newRow.Save()`
-
-### Querying a Row from a Model Instance:
-
-```
-myModelInstance.Get(sculpt.models.Query{})
-```
-Options for `models.Query{}`:
-
-If empty, it will return everything.
-
-
-DISTINCT `bool`
-
-- will return only distinct values for the first column.
-
-- if you do not pass in a column into Columns AND distinct is true, it will return all distinct rows
-
-Columns  `[]string` 
-
-- what columns to return in the map (first column is used for distinct if DISTINCT is true)
-
-Where    `map[string]interface{}` 
-
-- return the rows where the value for a column is what is specified (only exact matches) <a href="https://www.w3schools.com/sql/sql_where.asp">Explanation</a>
-
-Order_By `string`
-
-- order by the name of the column
-
-### Deleting a Row from a Model Instance:
-
-```
-myModelInstance.Delete()
-```
-If empty, it will delete everything.
-
-Options:
-
-w `map[string]interface{}`
-
-- delete where column name (key) is equal to value (value)
-
-#### WARNING:
-SANITIZE ALL USER INPUTS. SCULPT DOES NOT SANITIZE INPUTS.
+After creating your model, you may want to save it (as a table) in postgres.

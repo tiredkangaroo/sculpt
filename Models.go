@@ -3,6 +3,7 @@ package sculpt
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 type Model struct {
@@ -11,30 +12,10 @@ type Model struct {
 	Columns []*Column
 }
 
-type Field = interface{}
-type IDField struct{}
-type IntegerField struct{}
-type TextField struct{}
-
-type Column struct {
-	PRIMARY_KEY bool
-	UNIQUE      bool
-	Name        string
-	Kind        Field
-	Validations []string
-}
-
-type Row struct {
-	Model  *Model
-	Values map[string]any
-}
-
-type Condition = string
-
-// NewModel creates a new pointer to a Model from the
+// New creates a new pointer to a Model from the
 // passed in struct. See the reference on how to create
 // the struct.
-func NewModel(schema any) *Model {
+func New(schema any) *Model {
 	st := reflect.TypeOf(schema)
 	sv := reflect.ValueOf(schema)
 
@@ -67,35 +48,37 @@ func NewModel(schema any) *Model {
 		//column.UNIQUE
 		unique := boolFromTag("unique", field.Tag, false)
 
+		//column.NULLABLE
+		nullable := boolFromTag("nullable", field.Tag, true)
+
 		// column.Kind
 		kind := field.Tag.Get("kind")
 		switch kind {
-
-		case "IDField":
-			switch svf.Interface().(type) {
-			case string:
-				column.Kind = IDField{}
-			default:
-				panic("type for IDField must be string")
-			}
 		case "IntegerField":
 			switch svf.Interface().(type) {
 			case int, int8, int16, int32, int64:
-				column.Kind = IntegerField{}
+				column.Kind = IntegerField
 			default:
 				panic("type for IntegerField must be int, int8, int16, int32, int64")
 			}
 		case "TextField":
 			switch svf.Interface().(type) {
 			case string:
-				column.Kind = TextField{}
+				column.Kind = TextField
 			default:
 				panic("type for TextField must be string")
 			}
 		case "":
-			panic(fmt.Sprintf("field %s does not specfiy a kind in its struct tag", column.Name))
+			switch svf.Interface().(type) {
+			case string:
+				column.Kind = TextField
+			case int, int8, int16, int32, int64:
+				column.Kind = IntegerField
+			default:
+				panic(fmt.Sprintf("field %s does not specfiy a kind in its struct tag", column.Name))
+			}
 		default:
-			panic(fmt.Sprintf("field %s has a kind that is not IDField, IntegerField, or TextField.", column.Name))
+			panic(fmt.Sprintf("field %s has a kind that is not IntegerField, or TextField.", column.Name))
 		}
 
 		//column.Validators
@@ -112,9 +95,11 @@ func NewModel(schema any) *Model {
 			}
 		}
 
+		column.model = model
 		column.Name = name
 		column.PRIMARY_KEY = primary_key
 		column.UNIQUE = unique
+		column.NULLABLE = nullable
 		column.Validations = validators
 
 		model.Columns = append(model.Columns, column)
@@ -122,12 +107,123 @@ func NewModel(schema any) *Model {
 	return model
 }
 
-func (m *Model) NewRow(s any) (*Row, error) {
+// Migrate migrates the model to a new schema.
+func (m *Model) Migrate() error {
+	newModel := New(m.raw)
+	// Detect changes
+	statement := fmt.Sprintf(`SELECT
+                    a.attname AS column_name,
+                    NOT (a.attnotnull OR (t.typname = 'bool' AND a.atttypmod = -1)) AS nullable,
+                    (SELECT count(*) = 1 FROM pg_constraint c WHERE c.conrelid = a.attrelid AND c.conkey[1] = a.attnum AND c.contype = 'p') AS primary_key,
+                    (SELECT count(*) = 1 FROM pg_constraint c WHERE c.conrelid = a.attrelid AND c.conkey[1] = a.attnum AND c.contype = 'u') AS unique,
+                    t.typname AS data_type
+                FROM
+                    pg_attribute a
+                JOIN
+                    pg_type t ON a.atttypid = t.oid
+                JOIN
+                    pg_class c ON a.attrelid = c.oid
+                JOIN
+                    pg_namespace n ON c.relnamespace = n.oid
+                WHERE
+                    a.attnum > 0 AND NOT a.attisdropped AND c.relname = '%s' AND n.nspname = '%s'
+                ORDER BY
+                    a.attnum;`, strings.ToLower(m.Name), "public")
+	var oldColumns []*Column
+	rows, err := ActiveDB.Query(statement)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if rows == nil {
+		return RowsAreEmpty()
+	}
+	for rows.Next() {
+		column := new(Column)
+		column.model = m
+		var columnName, columnKind string
+		var columnPrimaryKey, columnUnique, columnNullable bool
+		err := rows.Scan(&columnName, &columnNullable, &columnPrimaryKey, &columnUnique, &columnKind)
+		if err != nil {
+			return err
+		}
+		column.Name = columnName
+		column.PRIMARY_KEY = columnPrimaryKey
+		column.UNIQUE = columnUnique
+		column.NULLABLE = columnNullable
+		switch columnKind {
+		case "int4", "int8", "serial", "bigserial":
+			column.Kind = IntegerField
+		case "text", "varchar":
+			column.Kind = TextField
+		default:
+			// Default case can be expanded to handle other types
+			return UnknownTypeFromDatabase(columnKind)
+		}
+		oldColumns = append(oldColumns, column)
+	}
+	additions, alterations, deletions := compareColumns(oldColumns, newModel.Columns)
+	if len(additions) == 0 && len(alterations) == 0 && len(deletions) == 0 {
+		LogInfo("Migrations:", "No migrations.")
+		return nil
+	}
+	LogInfo("Migrations:", "Migrations for %s (%s+%d%s, %s!%d%s, %s-%d%s):", m.Name, greenbgBlackF, len(additions), normal, yellowbgBlackF, len(alterations), normal, redbgWhiteF, len(deletions), normal)
+	statements := []string{}
+	for _, deletion := range deletions {
+		LogInfo("Migrations:", "Migration change detected: Deleted field: %s (%T)", deletion.Name, deletion.Kind)
+		statement := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s;", m.Name, deletion.Name)
+		statements = append(statements, statement)
+	}
+	for _, alteration := range alterations {
+		LogInfo("Migrations:", "Migration change detected: Alteration.")
+		statements = append(statements, fmt.Sprintf("ALTER TABLE %s %s", m.Name, alteration))
+	}
+	for _, addition := range additions {
+		LogInfo("Migrations:", "Migration change detected: Added new field: %s (%T)", addition.Name, addition.Kind)
+		kts, _ := kindToSQL(addition.Kind)
+		statement = fmt.Sprintf("ALTER TABLE %s ADD %s %s", m.Name, addition.Name, kts)
+		statement += extraColumnProperties(addition)
+		statement += ";"
+		statements = append(statements, statement)
+	}
+	// for _, statement := range statements {
+	// 	_, err := ActiveDB.Execute(statement)
+	// 	if err != nil {
+	// 		LogError("Migrations failed to apply: %s", err.Error())
+	// 		return err
+	// 	}
+	// }
+	fmt.Println(statements)
+	return nil
+}
+
+// Delete deletes the model inside the PostgreSQL database.
+// The pointer to Model that delete was called with is set to nil.
+func (m *Model) Delete() error {
+	statement := fmt.Sprintf("DROP TABLE %s;", m.Name)
+	_, err := ActiveDB.Execute(statement)
+	if err != nil {
+		return err
+	}
+	m = nil
+	return nil
+}
+
+// Truncate removes all rows inside the table associated
+// with the Model.
+func (m *Model) Truncate() error {
+	statement := fmt.Sprintf("TRUNCATE TABLE %s;", m.Name)
+	_, err := ActiveDB.Execute(statement)
+	return err
+}
+
+// New creates a new row associated with the model.
+func (m *Model) New(s any) (*Row, error) {
 	sv := reflect.ValueOf(s)
 
 	rawt := reflect.TypeOf(m.raw)
 	if sv.Type() != rawt {
-		LogInfo("%s %s", sv.Type(), rawt)
+		LogInfo("", "%s %s", sv.Type(), rawt)
 		return nil, ModelTypeMismatch(rawt.Name(), sv.Type().Name())
 	}
 
@@ -147,7 +243,7 @@ func (m *Model) NewRow(s any) (*Row, error) {
 			if validator.Kind != column.Kind {
 				return nil, ValidatorCannotBeUsedForKind(vn, validator.Kind, column.Name, column.Kind)
 			}
-			ok, err := validator.Func(vn)
+			ok, err := validator.Func(field.Interface())
 			if !ok {
 				return nil, ValidationFailed(vn, column.Name, field.Interface(), err)
 			}
@@ -155,79 +251,6 @@ func (m *Model) NewRow(s any) (*Row, error) {
 		}
 	}
 	return newRow, nil
-}
-
-func RunQuery[I any](m *Model, s I, query Query) ([]I, error) {
-	sv := reflect.ValueOf(s)
-
-	rawt := reflect.TypeOf(m.raw)
-	if rawt != sv.Type() {
-		return []I{}, ModelTypeMismatch(rawt.Name(), sv.Type().Name())
-	}
-
-	sv = sv.Elem()
-	st := reflect.TypeOf(s).Elem()
-
-	statement := "SELECT "
-	if query.Distinct {
-		statement += "DISTINCT "
-	}
-	if len(query.Columns) == 0 {
-		statement += "*"
-	}
-	for i, c := range query.Columns {
-		statement += c
-		if i+1 < len(query.Columns) {
-			statement += ", "
-		}
-	}
-	statement += " FROM " + m.Name
-	if len(query.Conditions) != 0 {
-		statement += " WHERE "
-		for i, c := range query.Conditions {
-			statement += c
-			if i+1 < len(query.Conditions) {
-				statement += " AND "
-			}
-		}
-	}
-	statement += ";"
-	rows, err := ActiveDB.Query(statement)
-	if err != nil {
-		return []I{}, err
-	}
-	defer rows.Close()
-	schemas := []I{}
-	for rows.Next() { // if there is no next it returns false and loop closes
-		newSchema := reflect.New(sv.Type())
-		nse := newSchema.Elem()
-		ptrs := []interface{}{}
-		for i := range nse.NumField() {
-			field := nse.Field(i)
-			fieldt := st.Field(i)
-			if len(query.Columns) == 0 { //SELECT *
-				ptrs = append(ptrs, field.Addr().Interface())
-				continue
-			}
-			for _, c := range query.Columns {
-				if fieldt.Name == c {
-					ptrs = append(ptrs, field.Addr().Interface())
-				}
-			}
-		}
-		err := rows.Scan(ptrs...)
-		if err != nil {
-			LogError("an error occured during scanning rows to schema: %s", err.Error())
-			continue
-		}
-		nsi, ok := newSchema.Interface().(I)
-		if !ok {
-			LogError("something went wrong")
-			continue
-		}
-		schemas = append(schemas, nsi)
-	}
-	return schemas, nil
 }
 
 func (m *Model) Save() error {
@@ -239,8 +262,9 @@ func (m *Model) Save() error {
 			return err
 		}
 		statement += fmt.Sprintf("%s %s", column.Name, _typ)
+		statement += extraColumnProperties(*column)
 		if i+1 < len(m.Columns) {
-			statement += ","
+			statement += ", "
 		}
 	}
 	statement += ");"
@@ -249,29 +273,4 @@ func (m *Model) Save() error {
 		return err
 	}
 	return nil
-}
-
-func (r *Row) Save() error {
-	statement := fmt.Sprintf("INSERT INTO %s (", r.Model.Name)
-	sp2 := "VALUES ("
-
-	for i, c := range r.Model.Columns {
-		statement += c.Name
-		switch c.Kind.(type) {
-		case TextField, IDField:
-			sp2 += fmt.Sprintf(`'%s'`, r.Values[c.Name])
-		case IntegerField:
-			sp2 += fmt.Sprintf("%d", r.Values[c.Name])
-		}
-		if i+1 < len(r.Model.Columns) {
-			statement += ","
-			sp2 += ","
-		}
-	}
-	statement += ") "
-	sp2 += ") "
-	statement += sp2
-	statement += ";"
-	_, err := ActiveDB.Execute(statement)
-	return err
 }

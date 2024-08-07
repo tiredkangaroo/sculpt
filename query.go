@@ -1,6 +1,14 @@
 package sculpt
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
+
+// FIXME: do not require Condition to be joined
+// with and. allow something like or as well.
+
+type Condition = string
 
 type Query struct {
 	// Columns specifies which columns to return.
@@ -91,4 +99,79 @@ func In(name string, value ...any) Condition {
 	}
 	statement += ")"
 	return statement
+}
+
+// RunQuery runs the query specified on the model.
+func RunQuery[I any](m *Model, query Query) ([]I, error) {
+	s := m.raw
+	sv := reflect.ValueOf(s)
+
+	rawt := reflect.TypeOf(m.raw)
+	if rawt != sv.Type() {
+		return []I{}, ModelTypeMismatch(rawt.Name(), sv.Type().Name())
+	}
+
+	sv = sv.Elem()
+	st := reflect.TypeOf(s).Elem()
+
+	statement := "SELECT "
+	if query.Distinct {
+		statement += "DISTINCT "
+	}
+	if len(query.Columns) == 0 {
+		statement += "*"
+	}
+	for i, c := range query.Columns {
+		statement += c
+		if i+1 < len(query.Columns) {
+			statement += ", "
+		}
+	}
+	statement += " FROM " + m.Name
+	if len(query.Conditions) != 0 {
+		statement += " WHERE "
+		for i, c := range query.Conditions {
+			statement += c
+			if i+1 < len(query.Conditions) {
+				statement += " AND "
+			}
+		}
+	}
+	statement += ";"
+	rows, err := ActiveDB.Query(statement)
+	if err != nil {
+		return []I{}, err
+	}
+	defer rows.Close()
+	schemas := []I{}
+	for rows.Next() { // if there is no next it returns false and loop closes
+		newSchema := reflect.New(sv.Type())
+		nse := newSchema.Elem()
+		ptrs := []interface{}{}
+		for i := range nse.NumField() {
+			field := nse.Field(i)
+			fieldt := st.Field(i)
+			if len(query.Columns) == 0 { //SELECT *
+				ptrs = append(ptrs, field.Addr().Interface())
+				continue
+			}
+			for _, c := range query.Columns {
+				if fieldt.Name == c {
+					ptrs = append(ptrs, field.Addr().Interface())
+				}
+			}
+		}
+		err := rows.Scan(ptrs...)
+		if err != nil {
+			LogError("an error occured during scanning rows to schema: %s", err.Error())
+			continue
+		}
+		nsi, ok := newSchema.Interface().(I)
+		if !ok {
+			LogError("something went wrong")
+			continue
+		}
+		schemas = append(schemas, nsi)
+	}
+	return schemas, nil
 }

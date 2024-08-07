@@ -1,8 +1,8 @@
 package sculpt
 
-type Validator[T Field] struct {
-	Kind T
+type Validator[T any] struct {
+	Kind Field
 	Func func(T) (bool, error)
 }
 
-var registeredValidators = make(map[string]Validator[Field])
+var registeredValidators = make(map[string]Validator[any])
