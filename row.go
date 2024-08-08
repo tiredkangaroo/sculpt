@@ -8,11 +8,11 @@ type Row struct {
 }
 
 func (r *Row) Save() error {
-	statement := fmt.Sprintf("INSERT INTO %s (", r.Model.Name)
+	statement := fmt.Sprintf(`INSERT INTO "%s" (`, r.Model.Name)
 	sp2 := "VALUES ("
 
 	for i, c := range r.Model.Columns {
-		statement += c.Name
+		statement += `"` + c.Name + `"`
 		switch c.Kind {
 		case TextField:
 			sp2 += fmt.Sprintf(`'%s'`, r.Values[c.Name])

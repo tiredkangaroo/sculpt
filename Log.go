@@ -16,17 +16,18 @@ var currentLogLevel LogLevel
 type LogLevel int
 
 const (
-	INFO  LogLevel = 0
-	WARN  LogLevel = 1
-	ERROR LogLevel = 2
-	NOLOG LogLevel = 3
+	DEBUG LogLevel = 0
+	INFO  LogLevel = 1
+	WARN  LogLevel = 2
+	ERROR LogLevel = 3
+	NOLOG LogLevel = 4
 )
 
 // SetLogLevel sets the log level from level argument. Panics
 // if level is not a LogLevel.
 func SetLogLevel(level LogLevel) {
 	switch level {
-	case INFO, WARN, ERROR, NOLOG:
+	case DEBUG, INFO, WARN, ERROR, NOLOG:
 		currentLogLevel = level
 	default:
 		panic("Log level must be DEBUG, WARN, ERROR, or NOLOG.")
@@ -35,6 +36,12 @@ func SetLogLevel(level LogLevel) {
 
 func cprint(c string, r string, s string, a ...any) {
 	fmt.Println(c+bold+r+normal, fmt.Sprintf(s, a...)+normal)
+}
+
+func LogDebug(application string, s string, a ...any) {
+	if currentLogLevel <= DEBUG {
+		cprint(bluebgWhiteF, application, s, a...)
+	}
 }
 
 func LogInfo(application string, s string, a ...any) {

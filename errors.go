@@ -42,14 +42,3 @@ func RowsAreEmpty() error {
 func UnknownTypeFromDatabase(_type string) error {
 	return fmt.Errorf("while parsing the sql database, we got an unknown type %s", _type)
 }
-
-func AnyToSQLString(value any) (string, error) {
-	switch v := value.(type) {
-	case string:
-		return fmt.Sprintf("'%s'", v), nil
-	case int:
-		return fmt.Sprintf("%d", v), nil
-	default:
-		return "", fmt.Errorf("type not supported")
-	}
-}

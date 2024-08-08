@@ -9,7 +9,7 @@ import (
 )
 
 // GenerateUID generates a random unique id in format LLLL-NNNN. NOTE: THIS SYSTEM IS NOT CRYPTO GRAPHICALLY SECURE.
-func GenerateUID() string {
+func generateUID() string {
 	id := ""
 	for range 10 {
 		r := rand.IntN(25) + 1
@@ -48,6 +48,27 @@ func kindToSQL(k any) (string, error) {
 		return "varchar(4096)", nil
 	default:
 		return "", fmt.Errorf("kind is not recognized")
+	}
+}
+
+func kindToRefectKind(k any) reflect.Kind {
+	switch k {
+	case IntegerField:
+		return reflect.Int
+	case TextField:
+		return reflect.String
+	}
+	return reflect.TypeOf(k).Kind()
+}
+
+func kindToString(k any) string {
+	switch k {
+	case TextField:
+		return "TextField"
+	case IntegerField:
+		return "IntegerField"
+	default:
+		return "Undefined"
 	}
 }
 
@@ -109,4 +130,14 @@ func fieldToString(kind Field) (s string) {
 		s = "integerfield"
 	}
 	return
+}
+func anyToSQLString(value any) (string, error) {
+	switch v := value.(type) {
+	case string:
+		return fmt.Sprintf("'%s'", v), nil
+	case int:
+		return fmt.Sprintf("%d", v), nil
+	default:
+		return "", fmt.Errorf("type not supported")
+	}
 }

@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+var mr = make(map[string]*Model)
+
 type Model struct {
 	raw     any
 	Name    string
@@ -15,7 +17,7 @@ type Model struct {
 // New creates a new pointer to a Model from the
 // passed in struct. See the reference on how to create
 // the struct.
-func New(schema any) *Model {
+func Register(schema any) *Model {
 	st := reflect.TypeOf(schema)
 	sv := reflect.ValueOf(schema)
 
@@ -88,10 +90,8 @@ func New(schema any) *Model {
 			if !ok {
 				panic(fmt.Sprintf("validator %s on field %s is not registered", v_name, name))
 			}
-			ckt := reflect.TypeOf(column.Kind)
-			vkt := reflect.TypeOf(validator.Kind)
-			if ckt != vkt {
-				panic(fmt.Sprintf("validator %s handles %s not %s", v_name, vkt.String(), ckt.String()))
+			if validator.Kind != column.Kind {
+				panic(fmt.Sprintf("validator %s handles %s not %s", v_name, kindToString(validator.Kind), kindToString(column.Kind)))
 			}
 		}
 
@@ -104,12 +104,13 @@ func New(schema any) *Model {
 
 		model.Columns = append(model.Columns, column)
 	}
+	mn := strings.ToLower(model.Name)
+	mr[mn] = model
 	return model
 }
 
 // Migrate migrates the model to a new schema.
 func (m *Model) Migrate() error {
-	newModel := New(m.raw)
 	// Detect changes
 	statement := fmt.Sprintf(`SELECT
                     a.attname AS column_name,
@@ -128,7 +129,7 @@ func (m *Model) Migrate() error {
                 WHERE
                     a.attnum > 0 AND NOT a.attisdropped AND c.relname = '%s' AND n.nspname = '%s'
                 ORDER BY
-                    a.attnum;`, strings.ToLower(m.Name), "public")
+                    a.attnum;`, m.Name, "public")
 	var oldColumns []*Column
 	rows, err := ActiveDB.Query(statement)
 	if err != nil {
@@ -147,7 +148,7 @@ func (m *Model) Migrate() error {
 		if err != nil {
 			return err
 		}
-		column.Name = columnName
+		column.Name = strings.ToLower(columnName)
 		column.PRIMARY_KEY = columnPrimaryKey
 		column.UNIQUE = columnUnique
 		column.NULLABLE = columnNullable
@@ -162,37 +163,38 @@ func (m *Model) Migrate() error {
 		}
 		oldColumns = append(oldColumns, column)
 	}
+	newModel := Register(m.raw)
 	additions, alterations, deletions := compareColumns(oldColumns, newModel.Columns)
 	if len(additions) == 0 && len(alterations) == 0 && len(deletions) == 0 {
-		LogInfo("Migrations:", "No migrations.")
+		LogError("Migrations:", "No migrations.")
 		return nil
 	}
 	LogInfo("Migrations:", "Migrations for %s (%s+%d%s, %s!%d%s, %s-%d%s):", m.Name, greenbgBlackF, len(additions), normal, yellowbgBlackF, len(alterations), normal, redbgWhiteF, len(deletions), normal)
 	statements := []string{}
 	for _, deletion := range deletions {
 		LogInfo("Migrations:", "Migration change detected: Deleted field: %s (%T)", deletion.Name, deletion.Kind)
-		statement := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s;", m.Name, deletion.Name)
+		statement := fmt.Sprintf(`ALTER TABLE "%s" DROP COLUMN "%s";`, m.Name, deletion.Name)
 		statements = append(statements, statement)
 	}
 	for _, alteration := range alterations {
 		LogInfo("Migrations:", "Migration change detected: Alteration.")
-		statements = append(statements, fmt.Sprintf("ALTER TABLE %s %s", m.Name, alteration))
+		statements = append(statements, fmt.Sprintf(`ALTER TABLE "%s" "%s";`, m.Name, alteration))
 	}
 	for _, addition := range additions {
 		LogInfo("Migrations:", "Migration change detected: Added new field: %s (%T)", addition.Name, addition.Kind)
 		kts, _ := kindToSQL(addition.Kind)
-		statement = fmt.Sprintf("ALTER TABLE %s ADD %s %s", m.Name, addition.Name, kts)
+		statement = fmt.Sprintf(`ALTER TABLE "%s" ADD "%s" %s`, m.Name, addition.Name, kts)
 		statement += extraColumnProperties(addition)
 		statement += ";"
 		statements = append(statements, statement)
 	}
-	// for _, statement := range statements {
-	// 	_, err := ActiveDB.Execute(statement)
-	// 	if err != nil {
-	// 		LogError("Migrations failed to apply: %s", err.Error())
-	// 		return err
-	// 	}
-	// }
+	for _, statement := range statements {
+		_, err := ActiveDB.Execute(statement)
+		if err != nil {
+			LogError("Migrations failed to apply: %s", err.Error())
+			continue
+		}
+	}
 	fmt.Println(statements)
 	return nil
 }
@@ -200,7 +202,7 @@ func (m *Model) Migrate() error {
 // Delete deletes the model inside the PostgreSQL database.
 // The pointer to Model that delete was called with is set to nil.
 func (m *Model) Delete() error {
-	statement := fmt.Sprintf("DROP TABLE %s;", m.Name)
+	statement := fmt.Sprintf(`DROP TABLE "%s";`, m.Name)
 	_, err := ActiveDB.Execute(statement)
 	if err != nil {
 		return err
@@ -212,7 +214,7 @@ func (m *Model) Delete() error {
 // Truncate removes all rows inside the table associated
 // with the Model.
 func (m *Model) Truncate() error {
-	statement := fmt.Sprintf("TRUNCATE TABLE %s;", m.Name)
+	statement := fmt.Sprintf(`TRUNCATE TABLE "%s";`, m.Name)
 	_, err := ActiveDB.Execute(statement)
 	return err
 }
@@ -247,21 +249,33 @@ func (m *Model) New(s any) (*Row, error) {
 			if !ok {
 				return nil, ValidationFailed(vn, column.Name, field.Interface(), err)
 			}
-			LogInfo("validation %s on column %s passed", vn, column.Name)
+			LogDebug("Validator:", "validation %s on column %s passed (input: %s)", vn, column.Name, field.Interface())
 		}
 	}
 	return newRow, nil
 }
 
+// NewNE is equivelent to New, however, it does not return an error.
+// In place of returning an error, it panics. This is only to be used
+// with prior knowledge that New would not have returned an error in the
+// first place.
+func (m *Model) NewNE(s any) *Row {
+	r, err := m.New(s)
+	if err != nil {
+		panic(err)
+	}
+	return r
+}
+
 func (m *Model) Save() error {
 	//FIXME: only does if not exists
-	statement := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (", m.Name)
+	statement := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" (`, m.Name)
 	for i, column := range m.Columns {
 		_typ, err := kindToSQL(column.Kind)
 		if err != nil {
 			return err
 		}
-		statement += fmt.Sprintf("%s %s", column.Name, _typ)
+		statement += fmt.Sprintf(`"%s" %s`, column.Name, _typ)
 		statement += extraColumnProperties(*column)
 		if i+1 < len(m.Columns) {
 			statement += ", "

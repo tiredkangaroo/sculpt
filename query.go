@@ -3,6 +3,7 @@ package sculpt
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 // FIXME: do not require Condition to be joined
@@ -22,82 +23,82 @@ type Query struct {
 }
 
 func EqualTo(name string, value any) Condition {
-	v, err := AnyToSQLString(value)
+	v, err := anyToSQLString(value)
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf("%s = %s", name, v)
+	return fmt.Sprintf(`"%s" = '%s'`, name, v)
 }
 
 func GreaterThan(name string, value any) Condition {
-	v, err := AnyToSQLString(value)
+	v, err := anyToSQLString(value)
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf("%s > %s", name, v)
+	return fmt.Sprintf(`"%s" > '%s'`, name, v)
 }
 
 func LessThan(name string, value any) Condition {
-	v, err := AnyToSQLString(value)
+	v, err := anyToSQLString(value)
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf("%s < %s", name, v)
+	return fmt.Sprintf(`"%s" < '%s'`, name, v)
 }
 
 func GreaterEqualOrEqualTo(name string, value any) Condition {
-	v, err := AnyToSQLString(value)
+	v, err := anyToSQLString(value)
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf("%s >= %s", name, v)
+	return fmt.Sprintf(`"%s" >= '%s'`, name, v)
 }
 
 func LessThanOrEqualTo(name string, value any) Condition {
-	v, err := AnyToSQLString(value)
+	v, err := anyToSQLString(value)
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf("%s <= %s", name, v)
+	return fmt.Sprintf(`"%s" <= '%s'`, name, v)
 }
 
 func NotEqualTo(name string, value any) Condition {
-	v, err := AnyToSQLString(value)
+	v, err := anyToSQLString(value)
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf("%s <> %s", name, v)
+	return fmt.Sprintf(`"%s" <> '%s'`, name, v)
 }
 
 func Between(name string, range1 any, range2 any) Condition {
-	v, err := AnyToSQLString(range1)
+	v, err := anyToSQLString(range1)
 	if err != nil {
 		panic(err.Error())
 	}
-	v2, err := AnyToSQLString(range2)
+	v2, err := anyToSQLString(range2)
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf("%s BETWEEN %s AND %s", name, v, v2)
+	return fmt.Sprintf(`"%s" BETWEEN %s AND %s`, name, v, v2)
 }
 
 func Like(name string, value string) Condition {
-	return fmt.Sprintf("%s LIKE %s", name, value)
+	return fmt.Sprintf(`"%s" LIKE %s`, name, value)
 }
 
 func In(name string, value ...any) Condition {
-	statement := fmt.Sprintf("%s IN (", name)
+	statement := fmt.Sprintf(`"%s" IN (`, name)
 	for i, val := range value {
-		v, err := AnyToSQLString(val)
+		v, err := anyToSQLString(val)
 		if err != nil {
 			panic(err.Error())
 		}
 		statement += v
 		if i+1 < len(value) {
-			statement += ", "
+			statement += `, `
 		}
 	}
-	statement += ")"
+	statement += `)`
 	return statement
 }
 
@@ -105,6 +106,12 @@ func In(name string, value ...any) Condition {
 func RunQuery[I any](m *Model, query Query) ([]I, error) {
 	s := m.raw
 	sv := reflect.ValueOf(s)
+	st := reflect.TypeOf(s).Elem()
+
+	m, ok := mr[strings.ToLower(st.Name())]
+	if !ok {
+		panic(`cannot run query on an unregistered model`)
+	}
 
 	rawt := reflect.TypeOf(m.raw)
 	if rawt != sv.Type() {
@@ -112,32 +119,31 @@ func RunQuery[I any](m *Model, query Query) ([]I, error) {
 	}
 
 	sv = sv.Elem()
-	st := reflect.TypeOf(s).Elem()
 
-	statement := "SELECT "
+	statement := `SELECT `
 	if query.Distinct {
-		statement += "DISTINCT "
+		statement += `DISTINCT `
 	}
 	if len(query.Columns) == 0 {
-		statement += "*"
+		statement += `*`
 	}
 	for i, c := range query.Columns {
 		statement += c
 		if i+1 < len(query.Columns) {
-			statement += ", "
+			statement += `, `
 		}
 	}
-	statement += " FROM " + m.Name
+	statement += ` FROM ` + `"` + m.Name + `"`
 	if len(query.Conditions) != 0 {
-		statement += " WHERE "
+		statement += ` WHERE `
 		for i, c := range query.Conditions {
 			statement += c
 			if i+1 < len(query.Conditions) {
-				statement += " AND "
+				statement += ` AND `
 			}
 		}
 	}
-	statement += ";"
+	statement += `;`
 	rows, err := ActiveDB.Query(statement)
 	if err != nil {
 		return []I{}, err
@@ -163,12 +169,12 @@ func RunQuery[I any](m *Model, query Query) ([]I, error) {
 		}
 		err := rows.Scan(ptrs...)
 		if err != nil {
-			LogError("an error occured during scanning rows to schema: %s", err.Error())
+			LogError(`an error occured during scanning rows to schema: %s`, err.Error())
 			continue
 		}
 		nsi, ok := newSchema.Interface().(I)
 		if !ok {
-			LogError("something went wrong")
+			LogError(`something went wrong`)
 			continue
 		}
 		schemas = append(schemas, nsi)

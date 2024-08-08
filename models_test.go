@@ -1,9 +1,11 @@
 package sculpt
 
-import "testing"
+import (
+	"testing"
+)
 
 type ExampleModel struct {
-	Name string
+	Name int
 }
 
 var examplemodel *Model
@@ -30,6 +32,7 @@ func RequireModels() {
 
 func TestMigrate(t *testing.T) {
 	RequireModels()
+
 	err := examplemodel.Migrate()
 	handle_err(t, err)
 }

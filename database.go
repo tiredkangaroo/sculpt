@@ -64,7 +64,7 @@ func (d *Database) Execute(statement string) (sql.Result, error) {
 		return nil, OperationRequiresDatabaseConnection("database execution")
 	}
 
-	LogInfo("Database:", "%s", statement)
+	LogDebug("Database:", "%s", statement)
 	res, err := d.SQLDatabase.Exec(statement)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (d *Database) Query(query string) (*sql.Rows, error) {
 		return nil, OperationRequiresDatabaseConnection("database execution")
 	}
 
-	LogInfo("", "Database: %s", query)
+	LogDebug("", "Database: %s", query)
 	res, err := d.SQLDatabase.Query(query)
 	if err != nil {
 		return nil, err

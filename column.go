@@ -43,13 +43,13 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 				} else {
 					sd = "SET"
 				}
-				alterations = append(alterations, fmt.Sprintf("ALTER COLUMN %s %s NOT NULL", cname, sd))
+				alterations = append(alterations, fmt.Sprintf(`ALTER COLUMN "%s" %s NOT NULL`, cname, sd))
 			}
 			if tc.PRIMARY_KEY != c.PRIMARY_KEY {
 				if c.PRIMARY_KEY {
-					alterations = append(alterations, fmt.Sprintf("DROP CONSTRAINT %s_pkey (%s)", c.model.Name, cname))
+					alterations = append(alterations, fmt.Sprintf(`DROP CONSTRAINT %s_pkey ("%s")`, c.model.Name, cname))
 				} else {
-					alterations = append(alterations, fmt.Sprintf("ADD PRIMARY KEY (%s)", cname))
+					alterations = append(alterations, fmt.Sprintf(`ADD PRIMARY KEY ("%s")`, cname))
 				}
 			}
 			if tc.Kind != c.Kind {
@@ -68,7 +68,7 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 					defaultCase = fmt.Sprintf(" USING CASE WHEN %s ~ '^[0-9]+$' THEN %s::integer ELSE %d END", cname, cname, i)
 				}
 				newType, _ := kindToSQL(c.Kind)
-				alterations = append(alterations, fmt.Sprintf("ALTER COLUMN %s TYPE %s%s", cname, newType, defaultCase))
+				alterations = append(alterations, fmt.Sprintf(`ALTER COLUMN "%s" TYPE %s%s`, cname, newType, defaultCase))
 			}
 			if tc.UNIQUE != c.UNIQUE {
 				if c.UNIQUE {
@@ -78,17 +78,17 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 						continue
 					}
 
-					statement := fmt.Sprintf(`WITH cte AS (SELECT ctid, %s, ROW_NUMBER() OVER (PARTITION BY %s ORDER BY ctid) AS rn FROM %s)
-							UPDATE %s
-							SET %s = NULL
+					statement := fmt.Sprintf(`WITH cte AS (SELECT ctid, "%s", ROW_NUMBER() OVER (PARTITION BY "%s" ORDER BY ctid) AS rn FROM "%s")
+							UPDATE "%s"
+							SET "%s" = NULL
 							FROM cte
-							WHERE %s.ctid = cte.ctid AND cte.rn > 1;`, cname, cname, c.model.Name, c.model.Name, cname, cname)
+							WHERE "%s".ctid = cte.ctid AND cte.rn > 1;`, cname, cname, c.model.Name, c.model.Name, cname, cname)
 					_, err := ActiveDB.Execute(statement)
 					if err != nil {
 						panic(err)
 					}
 
-					alterations = append(alterations, fmt.Sprintf("ADD UNIQUE(%s)", c.model.Name))
+					alterations = append(alterations, fmt.Sprintf(`ADD UNIQUE("%s")`, c.model.Name))
 				} else {
 					alterations = append(alterations, fmt.Sprintf("DROP CONSTRAINT %s_%s_key", c.model.Name, c.Name))
 				}
