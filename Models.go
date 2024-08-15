@@ -182,7 +182,7 @@ func (m *Model) Migrate() error {
 	}
 	for _, alteration := range alterations {
 		LogInfo("Migrations:", "Migration change detected: Alteration.")
-		statements = append(statements, fmt.Sprintf(`ALTER TABLE "%s" "%s";`, m.Name, alteration))
+		statements = append(statements, fmt.Sprintf(`ALTER TABLE "%s" %s;`, m.Name, alteration))
 	}
 	for _, addition := range additions {
 		LogInfo("Migrations:", "Migration change detected: Added new field: %s (%T)", addition.Name, addition.Kind)
@@ -199,7 +199,6 @@ func (m *Model) Migrate() error {
 			continue
 		}
 	}
-	fmt.Println(statements)
 	return nil
 }
 
