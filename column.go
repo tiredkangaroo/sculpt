@@ -44,7 +44,7 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 			}
 			if tc.PRIMARY_KEY != c.PRIMARY_KEY {
 				if c.PRIMARY_KEY {
-					alterations = append(alterations, fmt.Sprintf(`DROP CONSTRAINT %s_pkey ("%s")`, c.model.Name, c.Name))
+					alterations = append(alterations, fmt.Sprintf(`DROP CONSTRAINT %s_pkey`, c.model.Name))
 				} else {
 					alterations = append(alterations, fmt.Sprintf(`ADD PRIMARY KEY ("%s")`, c.Name))
 				}
