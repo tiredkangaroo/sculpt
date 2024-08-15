@@ -18,7 +18,7 @@ type User struct {
 func main() {
 	sculpt.SetLogLevel(sculpt.DEBUG)
 
-	err := sculpt.Connect("postgres", "", "checklistapp")
+	err := sculpt.Connect("postgres", "", "checklistapp_test")
 	if err != nil {
 		sculpt.LogError(err.Error())
 		return
@@ -34,7 +34,7 @@ func main() {
 	}
 
 	user.Migrate()
-	user.Delete()
+	user.DeleteModel()
 	user.Save()
 
 	start := time.Now()
@@ -77,6 +77,30 @@ func main() {
 		sculpt.LogError(err3.Error())
 		return
 	}
+
+	items, err := sculpt.RunQuery[*User](user, sculpt.Query{})
+	if err != nil {
+		sculpt.LogError(err.Error())
+		return
+	}
+	fmt.Println(len(items), items)
+
+	err = user.Delete(sculpt.Query{
+		Conditions: []sculpt.Condition{
+			sculpt.EqualTo("ID", "3"),
+		},
+	})
+	if err != nil {
+		sculpt.LogError(err.Error())
+		return
+	}
+
+	items, err = sculpt.RunQuery[*User](user, sculpt.Query{})
+	if err != nil {
+		sculpt.LogError(err.Error())
+		return
+	}
+	fmt.Println(len(items), items)
 
 	fmt.Println(time.Since(start).Microseconds())
 }
