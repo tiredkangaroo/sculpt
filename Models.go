@@ -63,23 +63,23 @@ func Register(schema any) *Model {
 		switch kind {
 		case "IntegerField":
 			switch svf.Interface().(type) {
-			case int, int8, int16, int32, int64:
+			case int, int8, int16, int32, int64, *int, *int8, *int16, *int32, *int64:
 				column.Kind = IntegerField
 			default:
 				panic("type for IntegerField must be int, int8, int16, int32, int64")
 			}
 		case "TextField":
 			switch svf.Interface().(type) {
-			case string:
+			case string, *string:
 				column.Kind = TextField
 			default:
 				panic("type for TextField must be string")
 			}
 		case "":
 			switch svf.Interface().(type) {
-			case string:
+			case string, *string:
 				column.Kind = TextField
-			case int, int8, int16, int32, int64:
+			case int, int8, int16, int32, int64, *int, *int8, *int16, *int32, *int64:
 				column.Kind = IntegerField
 			default:
 				panic(fmt.Sprintf("field %s does not specfiy a kind in its struct tag", column.Name))
@@ -202,9 +202,14 @@ func (m *Model) Migrate() error {
 	return nil
 }
 
+func (m *Model) Delete(query Query) (err error) {
+	_, err = ActiveDB.Execute(fmt.Sprintf(`DELETE FROM "%s"%s;`, m.Name, buildWhere(query)))
+	return
+}
+
 // Delete deletes the model inside the PostgreSQL database.
 // The pointer to Model that delete was called with is set to nil.
-func (m *Model) Delete() error {
+func (m *Model) DeleteModel() error {
 	statement := fmt.Sprintf(`DROP TABLE "%s";`, m.Name)
 	_, err := ActiveDB.Execute(statement)
 	if err != nil {
@@ -231,7 +236,11 @@ func (m *Model) New(s any) (*Row, error) {
 	newRow.Values = make(map[string]any)
 	for _, column := range m.Columns {
 		field := sv.FieldByName(column.Name)
-		newRow.Values[column.Name] = field.Interface()
+		if field.Type().Kind() == reflect.Pointer {
+			newRow.Values[column.Name] = field.Elem().Interface()
+		} else {
+			newRow.Values[column.Name] = field.Interface()
+		}
 		for _, vn := range column.Validations {
 			validator := registeredValidators[vn]
 			if validator.Func == nil {

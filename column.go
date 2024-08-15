@@ -39,6 +39,13 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 					sd = "DROP"
 				} else {
 					sd = "SET"
+					var input string
+					fmt.Printf("Migrator: %s is becoming a NOT NULL column. Please provide a default value for rows that have this column set to NULL.", c.Name)
+					_, err := fmt.Scan(&input)
+					if err != nil {
+						panic(err)
+					}
+					ActiveDB.Execute("UPDATE $1 SET $2 = '$3' WHERE $4 IS NULL;", c.model.Name, c.Name, input, c.Name)
 				}
 				alterations = append(alterations, fmt.Sprintf(`ALTER COLUMN "%s" %s NOT NULL`, c.Name, sd))
 			}

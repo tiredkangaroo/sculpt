@@ -133,15 +133,7 @@ func RunQuery[I any](m *Model, query Query) ([]I, error) {
 		}
 	}
 	statement += ` FROM ` + `"` + m.Name + `"`
-	if len(query.Conditions) != 0 {
-		statement += ` WHERE `
-		for i, c := range query.Conditions {
-			statement += c
-			if i+1 < len(query.Conditions) {
-				statement += ` AND `
-			}
-		}
-	}
+	statement += buildWhere(query)
 	statement += `;`
 	rows, err := ActiveDB.Query(statement)
 	if err != nil {

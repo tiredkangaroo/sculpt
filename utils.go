@@ -141,3 +141,16 @@ func anyToSQLString(value any) (string, error) {
 		return "", fmt.Errorf("type not supported")
 	}
 }
+
+func buildWhere(query Query) (statement string) {
+	if len(query.Conditions) != 0 {
+		statement += ` WHERE `
+		for i, c := range query.Conditions {
+			statement += c
+			if i+1 < len(query.Conditions) {
+				statement += ` AND `
+			}
+		}
+	}
+	return
+}

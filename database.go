@@ -3,6 +3,7 @@ package sculpt
 import (
 	"database/sql"
 	"fmt"
+	"regexp"
 
 	_ "github.com/lib/pq"
 )
@@ -51,7 +52,7 @@ func Seed(rows ...*Row) {
 	}
 	for _, m := range models {
 		mCopy := *m
-		err := m.Delete()
+		err := m.DeleteModel()
 		if err != nil {
 			LogError("an error occured during seeding: %s", err.Error())
 			continue
@@ -65,13 +66,16 @@ func Seed(rows ...*Row) {
 	}
 }
 
-func (d *Database) Execute(statement string) (sql.Result, error) {
+func (d *Database) Execute(statement string, args ...any) (sql.Result, error) {
 	if !ActiveDB.Connected() {
 		return nil, OperationRequiresDatabaseConnection("database execution")
 	}
 
-	LogDebug("Database:", "%s", statement)
-	res, err := d.SQLDatabase.Exec(statement)
+	re := regexp.MustCompile(`\$[0-9]+`)
+	output := re.ReplaceAllString(statement, "%s")
+	LogDebug("Database:", output, args...)
+
+	res, err := d.SQLDatabase.Exec(statement, args...)
 	if err != nil {
 		return nil, err
 	}
