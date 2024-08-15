@@ -131,7 +131,7 @@ func (m *Model) Migrate() error {
                 JOIN
                     pg_namespace n ON c.relnamespace = n.oid
                 WHERE
-                    a.attnum > 0 AND NOT a.attisdropped AND c.relname = "%s" AND n.nspname = "%s"
+                    a.attnum > 0 AND NOT a.attisdropped AND c.relname = '%s' AND n.nspname = '%s'
                 ORDER BY
                     a.attnum;`, m.Name, "public")
 	var oldColumns []*Column
