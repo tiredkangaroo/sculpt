@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/tiredkangaroo/sculpt"
 )
@@ -21,7 +22,9 @@ func main() {
 		sculpt.LogError(err.Error())
 		return
 	}
+
 	sculpt.RegisterValidator("email", sculpt.EmailValidator)
+
 	user := sculpt.Register(new(User))
 	err = user.Save()
 	if err != nil {
@@ -30,40 +33,43 @@ func main() {
 	}
 
 	user.Migrate()
-	seed := []*sculpt.Row{
-		user.NewNE(&User{
-			ID:             0,
-			Username:       "ajiteshkumar",
-			Email:          "ajiteshkumar@smtp.local",
-			HashedPassword: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-		}),
-		user.NewNE(&User{
-			ID:             1,
-			Username:       "testuser1",
-			Email:          "testuser1@smtp.local",
-			HashedPassword: "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f",
-		}),
-		user.NewNE(&User{
-			ID:             2,
-			Username:       "testuser2",
-			Email:          "helloworld@monster",
-			HashedPassword: "0000",
-		}),
-	}
-	sculpt.Seed(seed...)
+	user.Delete()
+	user.Save()
 
-	users, err := sculpt.RunQuery[*User](user, sculpt.Query{
-		Columns:  []string{},
-		Distinct: true,
-		Conditions: []sculpt.Condition{
-			sculpt.EqualTo("ID", 0),
-		},
+	start := time.Now()
+	row1 := user.NewNE(&User{
+		ID:             1,
+		Username:       "ajiteshkumar",
+		Email:          "ajiteshkumar@smtp.local",
+		HashedPassword: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 	})
-
+	row2 := user.NewNE(&User{
+		ID:             2,
+		Username:       "testuser1",
+		Email:          "testuser1@smtp.local",
+		HashedPassword: "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f",
+	})
+	row3 := user.NewNE(&User{
+		ID:             3,
+		Username:       "testuser2",
+		Email:          "helloworld@smtp.local",
+		HashedPassword: "0000",
+	})
+	err = row1.Save()
 	if err != nil {
-		fmt.Println(err.Error())
+		sculpt.LogError(err.Error())
+		return
+	}
+	err2 := row2.Save()
+	if err2 != nil {
+		sculpt.LogError(err2.Error())
+		return
+	}
+	err3 := row3.Save()
+	if err3 != nil {
+		sculpt.LogError(err3.Error())
 		return
 	}
 
-	fmt.Println(users[0])
+	fmt.Println(time.Since(start).Microseconds())
 }

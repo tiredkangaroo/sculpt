@@ -25,7 +25,7 @@ func RequireConnection() {
 func RequireModels() {
 	RequireConnection()
 	if examplemodel == nil {
-		examplemodel = New(new(ExampleModel))
+		examplemodel = Register(new(ExampleModel))
 		examplemodel.Save()
 	}
 }

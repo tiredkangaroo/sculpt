@@ -3,10 +3,9 @@ package sculpt
 import (
 	"fmt"
 	"reflect"
-	"strings"
 )
 
-var mr = make(map[string]*Model)
+var ModelRegistry = make(map[string]*Model)
 
 type Model struct {
 	raw     any
@@ -22,7 +21,7 @@ func Register(schema any) *Model {
 	sv := reflect.ValueOf(schema)
 
 	if st.Kind() != reflect.Pointer {
-		panic("schema must be POINTER to struct.")
+		panic("schema must be pointer to STRUCT.")
 	}
 
 	st = st.Elem()
@@ -37,6 +36,13 @@ func Register(schema any) *Model {
 	model.raw = schema
 	for i := range st.NumField() {
 		field := st.Field(i)
+
+		//column.NULLABLE
+		nullable := false
+		if field.Type.Kind() == reflect.Pointer {
+			nullable = true
+		}
+
 		svf := sv.Field(i)
 
 		column := new(Column)
@@ -45,13 +51,12 @@ func Register(schema any) *Model {
 		name := st.Field(i).Name
 
 		//column.PRIMARY_KEY
-		primary_key := boolFromTag("primary_key", field.Tag, false)
+		if i == 0 {
+			column.PRIMARY_KEY = true
+		}
 
 		//column.UNIQUE
 		unique := boolFromTag("unique", field.Tag, false)
-
-		//column.NULLABLE
-		nullable := boolFromTag("nullable", field.Tag, true)
 
 		// column.Kind
 		kind := field.Tag.Get("kind")
@@ -97,15 +102,14 @@ func Register(schema any) *Model {
 
 		column.model = model
 		column.Name = name
-		column.PRIMARY_KEY = primary_key
 		column.UNIQUE = unique
 		column.NULLABLE = nullable
 		column.Validations = validators
 
 		model.Columns = append(model.Columns, column)
 	}
-	mn := strings.ToLower(model.Name)
-	mr[mn] = model
+	mn := model.Name
+	ModelRegistry[mn] = model
 	return model
 }
 
@@ -127,7 +131,7 @@ func (m *Model) Migrate() error {
                 JOIN
                     pg_namespace n ON c.relnamespace = n.oid
                 WHERE
-                    a.attnum > 0 AND NOT a.attisdropped AND c.relname = '%s' AND n.nspname = '%s'
+                    a.attnum > 0 AND NOT a.attisdropped AND c.relname = "%s" AND n.nspname = "%s"
                 ORDER BY
                     a.attnum;`, m.Name, "public")
 	var oldColumns []*Column
@@ -148,7 +152,7 @@ func (m *Model) Migrate() error {
 		if err != nil {
 			return err
 		}
-		column.Name = strings.ToLower(columnName)
+		column.Name = columnName
 		column.PRIMARY_KEY = columnPrimaryKey
 		column.UNIQUE = columnUnique
 		column.NULLABLE = columnNullable
@@ -166,7 +170,7 @@ func (m *Model) Migrate() error {
 	newModel := Register(m.raw)
 	additions, alterations, deletions := compareColumns(oldColumns, newModel.Columns)
 	if len(additions) == 0 && len(alterations) == 0 && len(deletions) == 0 {
-		LogError("Migrations:", "No migrations.")
+		LogError("Migrations: %s", "No migrations.")
 		return nil
 	}
 	LogInfo("Migrations:", "Migrations for %s (%s+%d%s, %s!%d%s, %s-%d%s):", m.Name, greenbgBlackF, len(additions), normal, yellowbgBlackF, len(alterations), normal, redbgWhiteF, len(deletions), normal)
@@ -209,14 +213,6 @@ func (m *Model) Delete() error {
 	}
 	m = nil
 	return nil
-}
-
-// Truncate removes all rows inside the table associated
-// with the Model.
-func (m *Model) Truncate() error {
-	statement := fmt.Sprintf(`TRUNCATE TABLE "%s";`, m.Name)
-	_, err := ActiveDB.Execute(statement)
-	return err
 }
 
 // New creates a new row associated with the model.

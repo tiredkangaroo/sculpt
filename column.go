@@ -3,7 +3,6 @@ package sculpt
 import (
 	"fmt"
 	"strconv"
-	"strings"
 )
 
 type Field int
@@ -27,15 +26,13 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 	additionsMap := make(map[string]Column)
 	deletionsMap := make(map[string]Column)
 	for _, c := range oldC {
-		cname := strings.ToLower(c.Name)
-		deletionsMap[cname] = *c
+		deletionsMap[c.Name] = *c
 	}
 
 	for _, c := range newC {
-		cname := strings.ToLower(c.Name)
-		tc, found := deletionsMap[cname]
+		tc, found := deletionsMap[c.Name]
 		if found { // it means its present in both old and new
-			delete(deletionsMap, cname)
+			delete(deletionsMap, c.Name)
 			if tc.NULLABLE != c.NULLABLE {
 				sd := ""
 				if c.NULLABLE {
@@ -43,13 +40,13 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 				} else {
 					sd = "SET"
 				}
-				alterations = append(alterations, fmt.Sprintf(`ALTER COLUMN "%s" %s NOT NULL`, cname, sd))
+				alterations = append(alterations, fmt.Sprintf(`ALTER COLUMN "%s" %s NOT NULL`, c.Name, sd))
 			}
 			if tc.PRIMARY_KEY != c.PRIMARY_KEY {
 				if c.PRIMARY_KEY {
-					alterations = append(alterations, fmt.Sprintf(`DROP CONSTRAINT %s_pkey ("%s")`, c.model.Name, cname))
+					alterations = append(alterations, fmt.Sprintf(`DROP CONSTRAINT %s_pkey ("%s")`, c.model.Name, c.Name))
 				} else {
-					alterations = append(alterations, fmt.Sprintf(`ADD PRIMARY KEY ("%s")`, cname))
+					alterations = append(alterations, fmt.Sprintf(`ADD PRIMARY KEY ("%s")`, c.Name))
 				}
 			}
 			if tc.Kind != c.Kind {
@@ -65,10 +62,10 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 					if err != nil {
 						panic("the default integer value you provided was not an integer.")
 					}
-					defaultCase = fmt.Sprintf(" USING CASE WHEN %s ~ '^[0-9]+$' THEN %s::integer ELSE %d END", cname, cname, i)
+					defaultCase = fmt.Sprintf(" USING CASE WHEN %s ~ '^[0-9]+$' THEN %s::integer ELSE %d END", c.Name, c.Name, i)
 				}
 				newType, _ := kindToSQL(c.Kind)
-				alterations = append(alterations, fmt.Sprintf(`ALTER COLUMN "%s" TYPE %s%s`, cname, newType, defaultCase))
+				alterations = append(alterations, fmt.Sprintf(`ALTER COLUMN "%s" TYPE %s%s`, c.Name, newType, defaultCase))
 			}
 			if tc.UNIQUE != c.UNIQUE {
 				if c.UNIQUE {
@@ -82,7 +79,7 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 							UPDATE "%s"
 							SET "%s" = NULL
 							FROM cte
-							WHERE "%s".ctid = cte.ctid AND cte.rn > 1;`, cname, cname, c.model.Name, c.model.Name, cname, cname)
+							WHERE "%s".ctid = cte.ctid AND cte.rn > 1;`, c.Name, c.Name, c.model.Name, c.model.Name, c.Name, c.Name)
 					_, err := ActiveDB.Execute(statement)
 					if err != nil {
 						panic(err)
@@ -94,7 +91,7 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 				}
 			}
 		} else { // only present in new
-			additionsMap[cname] = *c
+			additionsMap[c.Name] = *c
 		}
 	}
 

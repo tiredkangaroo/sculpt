@@ -3,7 +3,6 @@ package sculpt
 import (
 	"fmt"
 	"reflect"
-	"strings"
 )
 
 // FIXME: do not require Condition to be joined
@@ -27,7 +26,7 @@ func EqualTo(name string, value any) Condition {
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf(`"%s" = '%s'`, name, v)
+	return fmt.Sprintf(`"%s" = %s`, name, v)
 }
 
 func GreaterThan(name string, value any) Condition {
@@ -35,7 +34,7 @@ func GreaterThan(name string, value any) Condition {
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf(`"%s" > '%s'`, name, v)
+	return fmt.Sprintf(`"%s" > %s`, name, v)
 }
 
 func LessThan(name string, value any) Condition {
@@ -43,7 +42,7 @@ func LessThan(name string, value any) Condition {
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf(`"%s" < '%s'`, name, v)
+	return fmt.Sprintf(`"%s" < %s`, name, v)
 }
 
 func GreaterEqualOrEqualTo(name string, value any) Condition {
@@ -51,7 +50,7 @@ func GreaterEqualOrEqualTo(name string, value any) Condition {
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf(`"%s" >= '%s'`, name, v)
+	return fmt.Sprintf(`"%s" >= %s`, name, v)
 }
 
 func LessThanOrEqualTo(name string, value any) Condition {
@@ -59,7 +58,7 @@ func LessThanOrEqualTo(name string, value any) Condition {
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf(`"%s" <= '%s'`, name, v)
+	return fmt.Sprintf(`"%s" <= %s`, name, v)
 }
 
 func NotEqualTo(name string, value any) Condition {
@@ -67,7 +66,7 @@ func NotEqualTo(name string, value any) Condition {
 	if err != nil {
 		panic(err.Error())
 	}
-	return fmt.Sprintf(`"%s" <> '%s'`, name, v)
+	return fmt.Sprintf(`"%s" <> %s`, name, v)
 }
 
 func Between(name string, range1 any, range2 any) Condition {
@@ -108,7 +107,7 @@ func RunQuery[I any](m *Model, query Query) ([]I, error) {
 	sv := reflect.ValueOf(s)
 	st := reflect.TypeOf(s).Elem()
 
-	m, ok := mr[strings.ToLower(st.Name())]
+	m, ok := ModelRegistry[st.Name()]
 	if !ok {
 		panic(`cannot run query on an unregistered model`)
 	}

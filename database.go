@@ -41,20 +41,26 @@ func Disconnect() {
 // Seed takes the rows, truncates the models associated with the row,
 // and saves the row.
 func Seed(rows ...*Row) {
-	modelsTruncated := []string{}
+	models := []*Model{}
 	for _, r := range rows {
-		ok := sliceContains(modelsTruncated, r.Model.Name)
+		defer r.Save()
+		ok := sliceContains(models, r.Model)
 		if !ok {
-			err := r.Model.Truncate()
-			if err != nil {
-				LogError("unable to truncate model %s, error: %s", r.Model.Name, err.Error())
-			} else {
-				modelsTruncated = append(modelsTruncated, r.Model.Name)
-			}
+			models = append(models, r.Model)
 		}
-		err := r.Save()
+	}
+	for _, m := range models {
+		mCopy := *m
+		err := m.Delete()
 		if err != nil {
 			LogError("an error occured during seeding: %s", err.Error())
+			continue
+		}
+		m := &mCopy
+		err = m.Save()
+		if err != nil {
+			LogError("an error occured during seeding: %s", err.Error())
+			continue
 		}
 	}
 }
@@ -77,7 +83,7 @@ func (d *Database) Query(query string) (*sql.Rows, error) {
 		return nil, OperationRequiresDatabaseConnection("database execution")
 	}
 
-	LogDebug("", "Database: %s", query)
+	LogDebug("Database:", "%s", query)
 	res, err := d.SQLDatabase.Query(query)
 	if err != nil {
 		return nil, err

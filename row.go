@@ -1,6 +1,8 @@
 package sculpt
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type Row struct {
 	Model  *Model
