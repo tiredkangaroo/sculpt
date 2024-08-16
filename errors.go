@@ -12,11 +12,20 @@ func OperationRequiresDatabaseConnection(operationName string) error {
 	return fmt.Errorf("operation '%s' requires a database connection.", operationName)
 }
 
+func NoColumnAssociatedWithFieldInSchema(modelName string, modelFieldName string) error {
+	return fmt.Errorf("we could not find a column associated with %s in model %s", modelFieldName, modelName)
+}
+
 func ModelTypeMismatch(modelType string, got string) error {
 	return fmt.Errorf("model is formed with type %s not %s", modelType, got)
 }
+
 func FieldTypeMismatch(fieldName string, requiredType string) error {
 	return fmt.Errorf("field %s requires type %s but was given the wrong type.", fieldName, requiredType)
+}
+
+func FieldTypeMismatchGot(fieldName string, requiredType string, gotType string) error {
+	return fmt.Errorf("field %s requires type %s but was given type %s.", fieldName, requiredType, gotType)
 }
 
 func ReadFile(filename string, error error) error {
@@ -41,4 +50,8 @@ func RowsAreEmpty() error {
 }
 func UnknownTypeFromDatabase(_type string) error {
 	return fmt.Errorf("while parsing the sql database, we got an unknown type %s", _type)
+}
+
+func StructNotInRegistry(operation string, structName string) error {
+	return fmt.Errorf("attempted to %s with unregistered model %s", operation, structName)
 }

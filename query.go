@@ -1,8 +1,10 @@
 package sculpt
 
 import (
+	"database/sql"
 	"fmt"
 	"reflect"
+	"unsafe"
 )
 
 // FIXME: do not require Condition to be joined
@@ -101,6 +103,81 @@ func In(name string, value ...any) Condition {
 	return statement
 }
 
+func rowToSchema(schema reflect.Type, m *Model, columns []string, rows *sql.Rows) (*reflect.Value, error) {
+	if schema.Kind() == reflect.Pointer {
+		schema = schema.Elem()
+	}
+	newSchema := reflect.New(schema)
+	var values []any
+	for _, c := range columns {
+		field, _ := schema.FieldByName(c)
+		v := reflect.Zero(field.Type).Interface()
+		values = append(values, &v)
+	}
+	err := rows.Scan(values...)
+	if err != nil {
+		return nil, err
+	}
+	for j, v := range values {
+		cname := columns[j]
+		column := getColumnByName(m, cname)
+		field := newSchema.Elem().FieldByName(cname)
+		vD := *v.(*any)
+		if column.Kind.String() == "ReferenceField" {
+			ck := column.Kind.(ReferenceField)
+			referencedRows, err := ActiveDB.Query(
+				fmt.Sprintf(
+					`SELECT * FROM "%s" WHERE "%s" = '%v';`,
+					ck.References.Name,
+					ck.References.PrimaryKeyColumn.Name,
+					vD),
+			)
+			if err != nil {
+				return nil, err
+			}
+			nc := []string{}
+			for _, c := range ck.References.Columns {
+				nc = append(nc, c.Name)
+			}
+			for referencedRows.Next() {
+				s, err := rowToSchema(field.Type(), ck.References, nc, referencedRows)
+				if err != nil {
+					return nil, err
+				}
+				field.Set(*s)
+			}
+		} else {
+			vDT := reflect.TypeOf(vD)
+			switch vDA := vD.(type) {
+			case int, int8, int16, int32, int64:
+				if column.Kind.String() != "IntegerField" {
+					return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
+				}
+				up := unsafe.Pointer(&v)
+				i64 := (*int64)(up)
+				field.SetInt(*i64)
+			case bool:
+				if column.Kind.String() != "BooleanField" {
+					return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
+				}
+				field.SetBool(vDA)
+			case string:
+				if column.Kind.String() != "TextField" {
+					return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
+				}
+				field.SetString(vDA)
+			default:
+				ok := reflect.TypeOf(vD).AssignableTo(field.Type())
+				if !ok {
+					return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
+				}
+				field.Set(reflect.ValueOf(vD))
+			}
+		}
+	}
+	return &newSchema, nil
+}
+
 // RunQuery runs the query specified on the model.
 func RunQuery[I any](m *Model, query Query) ([]I, error) {
 	s := m.raw
@@ -124,10 +201,12 @@ func RunQuery[I any](m *Model, query Query) ([]I, error) {
 		statement += `DISTINCT `
 	}
 	if len(query.Columns) == 0 {
-		statement += `*`
+		for _, c := range m.Columns {
+			query.Columns = append(query.Columns, c.Name)
+		}
 	}
 	for i, c := range query.Columns {
-		statement += c
+		statement += fmt.Sprintf(`"%s"`, c)
 		if i+1 < len(query.Columns) {
 			statement += `, `
 		}
@@ -140,35 +219,15 @@ func RunQuery[I any](m *Model, query Query) ([]I, error) {
 		return []I{}, err
 	}
 	defer rows.Close()
-	schemas := []I{}
-	for rows.Next() { // if there is no next it returns false and loop closes
-		newSchema := reflect.New(sv.Type())
-		nse := newSchema.Elem()
-		ptrs := []interface{}{}
-		for i := range nse.NumField() {
-			field := nse.Field(i)
-			fieldt := st.Field(i)
-			if len(query.Columns) == 0 { //SELECT *
-				ptrs = append(ptrs, field.Addr().Interface())
-				continue
-			}
-			for _, c := range query.Columns {
-				if fieldt.Name == c {
-					ptrs = append(ptrs, field.Addr().Interface())
-				}
-			}
-		}
-		err := rows.Scan(ptrs...)
+
+	var schemas []I
+	for rows.Next() {
+		newSchema, err := rowToSchema(st, m, query.Columns, rows)
 		if err != nil {
-			LogError(`an error occured during scanning rows to schema: %s`, err.Error())
-			continue
+			return []I{}, err
 		}
-		nsi, ok := newSchema.Interface().(I)
-		if !ok {
-			LogError(`something went wrong`)
-			continue
-		}
-		schemas = append(schemas, nsi)
+		nsi := newSchema.Interface()
+		schemas = append(schemas, nsi.(I))
 	}
 	return schemas, nil
 }

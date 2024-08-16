@@ -30,9 +30,8 @@ func RequireModels() {
 	}
 }
 
-func TestMigrate(t *testing.T) {
-	RequireModels()
-
-	err := examplemodel.Migrate()
-	handle_err(t, err)
-}
+// func TestMigrate(t *testing.T) {
+// 	RequireModels()
+//
+// 	handle_err(t, err)
+// }

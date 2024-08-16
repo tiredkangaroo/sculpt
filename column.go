@@ -5,12 +5,14 @@ import (
 	"strconv"
 )
 
+// IntegerField
 type IntegerField struct{}
 
 func (i IntegerField) String() string {
 	return "IntegerField"
 }
 
+// TextField
 type TextField struct {
 	MaximumLength uint
 }
@@ -19,10 +21,21 @@ func (t TextField) String() string {
 	return "TextField"
 }
 
+// BooleanField
 type BooleanField struct{}
 
 func (b BooleanField) String() string {
 	return "BooleanField"
+}
+
+// ReferenceField
+type ReferenceField struct {
+	References *Model
+	OnDelete   string
+}
+
+func (r ReferenceField) String() string {
+	return "ReferenceField"
 }
 
 type Field interface {

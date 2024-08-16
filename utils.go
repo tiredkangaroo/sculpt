@@ -58,6 +58,10 @@ func kindToSQL(k Field) (string, error) {
 		return "int", nil
 	case "TextField":
 		return "varchar(4096)", nil
+	case "ReferenceField":
+		kr := k.(ReferenceField)
+		rk, _ := kindToSQL(kr.References.PrimaryKeyColumn.Kind) // cant fail
+		return fmt.Sprintf(`%s REFERENCES "%s"("%s") ON DELETE %s`, rk, kr.References.Name, kr.References.PrimaryKeyColumn.Name, strings.ToUpper(kr.OnDelete)), nil
 	default:
 		return "", fmt.Errorf("kind is not recognized")
 	}
@@ -129,6 +133,21 @@ func anyToSQLString(value any) (string, error) {
 		return fmt.Sprintf("'%s'", v), nil
 	case int:
 		return fmt.Sprintf("%d", v), nil
+	case interface{}:
+		t := reflect.TypeOf(value)
+		vv := reflect.ValueOf(v)
+		if t.Kind() == reflect.Pointer {
+			t = t.Elem()
+			vv = vv.Elem()
+		}
+		m, ok := ModelRegistry[t.Name()]
+		if !ok {
+			return "", StructNotInRegistry("query a reference", t.Name())
+		}
+		if m.PrimaryKeyColumn == nil {
+			return "", fmt.Errorf("cannot query a reference where the 'reference' does not have a primary key")
+		}
+		return fmt.Sprintf("'%v'", vv.FieldByName(m.PrimaryKeyColumn.Name).Interface()), nil
 	default:
 		return "", fmt.Errorf("type not supported")
 	}
@@ -145,4 +164,15 @@ func buildWhere(query Query) (statement string) {
 		}
 	}
 	return
+}
+
+func getColumnByName(m *Model, name string) *Column {
+	var column *Column
+	for _, c := range m.Columns {
+		if c.Name == name {
+			column = c
+			break
+		}
+	}
+	return column
 }

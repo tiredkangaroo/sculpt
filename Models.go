@@ -4,14 +4,16 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 var ModelRegistry = make(map[string]*Model)
 
 type Model struct {
-	raw     any
-	Name    string
-	Columns []*Column
+	raw              any
+	PrimaryKeyColumn *Column
+	Name             string
+	Columns          []*Column
 }
 
 // New creates a new pointer to a Model from the
@@ -49,18 +51,27 @@ func Register(schema any) *Model {
 		column := new(Column)
 
 		//column.Name
-		name := st.Field(i).Name
+		name := field.Name
 
 		//column.PRIMARY_KEY
-		if i == 0 {
-			column.PRIMARY_KEY = true
+		primary_key := false
+		if strings.HasPrefix(name, "PrimaryKey") && len(name) > 10 {
+			primary_key = true
+			column.PRIMARY_KEY = boolFromTag("primary_key", field.Tag, primary_key) // struct tag override
+			// FIXME: should probably remove PrimaryKey from name is primary_key is still true
+		} else {
+			primary_key = boolFromTag("primary_key", field.Tag, primary_key) // only specfied in struct tag
+		}
+		if primary_key == true {
+			model.PrimaryKeyColumn = column
 		}
 
 		//column.UNIQUE
 		unique := boolFromTag("unique", field.Tag, false)
 
+		svfi := svf.Interface()
 		// column.kind
-		switch svf.Interface().(type) {
+		switch svfi.(type) {
 		case string, *string:
 			column.Kind = TextField{
 				MaximumLength: uintFromTag("maximum_length", field.Tag, 4096),
@@ -69,6 +80,41 @@ func Register(schema any) *Model {
 			column.Kind = IntegerField{}
 		case bool, *bool:
 			column.Kind = BooleanField{}
+		case interface{}, *interface{}:
+			var found *Model
+			for name, m := range ModelRegistry {
+				if nullable {
+					if field.Type.Elem().Name() == name {
+						found = m
+						break
+					}
+				} else {
+					if field.Type.Name() == name {
+						found = m
+						break
+					}
+				}
+			}
+			if found == nil {
+				panic("cannot reference non-existent model (reference from field " + field.Name + ")")
+			}
+			if found.PrimaryKeyColumn == nil {
+				panic(fmt.Sprintf("cannot reference model %s. it does not have a primary key", found.Name))
+			}
+			onDelete := field.Tag.Get("on_delete")
+			switch onDelete {
+			case "cascade", "no action", "restrict":
+			case "set null":
+				if nullable == false {
+					panic(`on_delete cannot be set to "set null" on a non-nullable field`)
+				}
+			default:
+				panic("unsupported on_delete action: " + onDelete)
+			}
+			column.Kind = ReferenceField{
+				References: found,
+				OnDelete:   onDelete,
+			}
 		}
 
 		//column.Validators
@@ -85,6 +131,7 @@ func Register(schema any) *Model {
 
 		column.model = model
 		column.Name = name
+		column.PRIMARY_KEY = primary_key
 		column.UNIQUE = unique
 		column.NULLABLE = nullable
 		column.Validations = validators
@@ -203,7 +250,7 @@ func (m *Model) Delete(query Query) (err error) {
 // Delete deletes the model inside the PostgreSQL database.
 // The pointer to Model that delete was called with is set to nil.
 func (m *Model) DeleteModel() error {
-	statement := fmt.Sprintf(`DROP TABLE "%s";`, m.Name)
+	statement := fmt.Sprintf(`DROP TABLE "%s" CASCADE;`, m.Name)
 	_, err := ActiveDB.Execute(statement)
 	if err != nil {
 		return err
@@ -234,7 +281,8 @@ func (m *Model) New(s any) (*Row, error) {
 		} else {
 			newRow.Values[column.Name] = field.Interface()
 		}
-		for _, vn := range column.Validations {
+		// FIXME: validations should be run on save
+		for _, vn := range column.Validations { // run validation
 			validator := registeredValidators[vn]
 			if validator.Func == nil {
 				return nil, ValidatorHasNoFunc(vn, column.Name)

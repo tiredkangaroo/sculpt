@@ -81,13 +81,16 @@ func (d *Database) Execute(statement string, args ...any) (sql.Result, error) {
 	return res, err
 }
 
-func (d *Database) Query(query string) (*sql.Rows, error) {
+func (d *Database) Query(query string, args ...any) (*sql.Rows, error) {
 	if !ActiveDB.Connected() {
 		return nil, OperationRequiresDatabaseConnection("database execution")
 	}
 
-	LogDebug("Database:", "%s", query)
-	res, err := d.SQLDatabase.Query(query)
+	re := regexp.MustCompile(`\$[0-9]+`)
+	output := re.ReplaceAllString(query, "%s")
+	LogDebug("Database:", output, args...)
+
+	res, err := d.SQLDatabase.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
