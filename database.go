@@ -2,7 +2,6 @@ package sculpt
 
 import (
 	"database/sql"
-	"fmt"
 	"regexp"
 
 	_ "github.com/lib/pq"
@@ -21,8 +20,8 @@ func (d *Database) Disconnect() {
 	d.SQLDatabase = nil
 }
 
-func Connect(user string, password string, db_name string) error {
-	database, err := sql.Open("postgres", fmt.Sprintf("postgres://%s:%s@localhost/%s?sslmode=disable", user, password, db_name))
+func Connect(connectionURI string) error {
+	database, err := sql.Open("postgres", connectionURI)
 	if err != nil {
 		return err
 	}
