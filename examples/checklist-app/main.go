@@ -18,7 +18,7 @@ type User struct {
 func main() {
 	sculpt.SetLogLevel(sculpt.DEBUG)
 
-	err := sculpt.Connect("postgres", "", "checklistapp_test")
+	err := sculpt.Connect("postgres://postgres:@localhost:5432/checklistapp_test?sslmode=disable")
 	if err != nil {
 		sculpt.LogError(err.Error())
 		return
