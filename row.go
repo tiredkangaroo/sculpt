@@ -15,10 +15,10 @@ func (r *Row) Save() error {
 
 	for i, c := range r.Model.Columns {
 		statement += `"` + c.Name + `"`
-		switch c.Kind {
-		case TextField:
+		switch c.Kind.String() {
+		case "TextField":
 			sp2 += fmt.Sprintf(`'%s'`, r.Values[c.Name])
-		case IntegerField:
+		case "IntegerField":
 			sp2 += fmt.Sprintf("%d", r.Values[c.Name])
 		}
 		if i+1 < len(r.Model.Columns) {

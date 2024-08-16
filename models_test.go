@@ -19,7 +19,7 @@ func handle_err(t *testing.T, err error) {
 
 func RequireConnection() {
 	if Connected() == false {
-		Connect("postgres", "", "example")
+		Connect("postgres://postgres:@localhost:5432/checklistapp_test?sslmode=disable")
 	}
 }
 func RequireModels() {

@@ -18,7 +18,7 @@ var registeredValidators = make(map[string]Validator)
 
 // Standard validators
 var EmailValidator = Validator{
-	Kind: TextField,
+	Kind: TextField{},
 	Func: func(a any) (bool, error) {
 		email := a.(string)
 		parts := strings.Split(email, "@")

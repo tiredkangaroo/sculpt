@@ -5,12 +5,29 @@ import (
 	"strconv"
 )
 
-type Field int
+type IntegerField struct{}
 
-const (
-	IntegerField Field = 0
-	TextField    Field = 1
-)
+func (i IntegerField) String() string {
+	return "IntegerField"
+}
+
+type TextField struct {
+	MaximumLength uint
+}
+
+func (t TextField) String() string {
+	return "TextField"
+}
+
+type BooleanField struct{}
+
+func (b BooleanField) String() string {
+	return "BooleanField"
+}
+
+type Field interface {
+	String() string
+}
 
 type Column struct {
 	model       *Model
@@ -58,9 +75,9 @@ func compareColumns(oldC []*Column, newC []*Column) (additions []Column, alterat
 			}
 			if tc.Kind != c.Kind {
 				defaultCase := ""
-				if c.Kind == IntegerField {
+				if c.Kind.String() == "IntegerField" { //new kind is integer field
 					var input string
-					fmt.Printf("Migrator: %s is changing types from %s to integerfield. Default integer value: ", c.Name, fieldToString(tc.Kind))
+					fmt.Printf("Migrator: %s is changing types from %s to integerfield. Default integer value: ", c.Name, tc.Kind.String())
 					_, err := fmt.Scan(&input)
 					if err != nil {
 						panic(err)

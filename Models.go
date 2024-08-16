@@ -1,6 +1,7 @@
 package sculpt
 
 import (
+	"database/sql"
 	"fmt"
 	"reflect"
 )
@@ -58,34 +59,16 @@ func Register(schema any) *Model {
 		//column.UNIQUE
 		unique := boolFromTag("unique", field.Tag, false)
 
-		// column.Kind
-		kind := field.Tag.Get("kind")
-		switch kind {
-		case "IntegerField":
-			switch svf.Interface().(type) {
-			case int, int8, int16, int32, int64, *int, *int8, *int16, *int32, *int64:
-				column.Kind = IntegerField
-			default:
-				panic("type for IntegerField must be int, int8, int16, int32, int64")
+		// column.kind
+		switch svf.Interface().(type) {
+		case string, *string:
+			column.Kind = TextField{
+				MaximumLength: uintFromTag("maximum_length", field.Tag, 4096),
 			}
-		case "TextField":
-			switch svf.Interface().(type) {
-			case string, *string:
-				column.Kind = TextField
-			default:
-				panic("type for TextField must be string")
-			}
-		case "":
-			switch svf.Interface().(type) {
-			case string, *string:
-				column.Kind = TextField
-			case int, int8, int16, int32, int64, *int, *int8, *int16, *int32, *int64:
-				column.Kind = IntegerField
-			default:
-				panic(fmt.Sprintf("field %s does not specfiy a kind in its struct tag", column.Name))
-			}
-		default:
-			panic(fmt.Sprintf("field %s has a kind that is not IntegerField, or TextField.", column.Name))
+		case int, int8, int16, int32, int64, *int, *int8, *int16, *int32, *int64:
+			column.Kind = IntegerField{}
+		case bool, *bool:
+			column.Kind = BooleanField{}
 		}
 
 		//column.Validators
@@ -95,8 +78,8 @@ func Register(schema any) *Model {
 			if !ok {
 				panic(fmt.Sprintf("validator %s on field %s is not registered", v_name, name))
 			}
-			if validator.Kind != column.Kind {
-				panic(fmt.Sprintf("validator %s handles %s not %s", v_name, kindToString(validator.Kind), kindToString(column.Kind)))
+			if validator.Kind.String() != column.Kind.String() {
+				panic(fmt.Sprintf("validator %s handles %s not %s", v_name, validator.Kind.String(), column.Kind.String()))
 			}
 		}
 
@@ -121,7 +104,11 @@ func (m *Model) Migrate() error {
                     NOT (a.attnotnull OR (t.typname = 'bool' AND a.atttypmod = -1)) AS nullable,
                     (SELECT count(*) = 1 FROM pg_constraint c WHERE c.conrelid = a.attrelid AND c.conkey[1] = a.attnum AND c.contype = 'p') AS primary_key,
                     (SELECT count(*) = 1 FROM pg_constraint c WHERE c.conrelid = a.attrelid AND c.conkey[1] = a.attnum AND c.contype = 'u') AS unique,
-                    t.typname AS data_type
+                    t.typname AS data_type,
+                    CASE
+                        WHEN t.typname = 'varchar' THEN a.atttypmod - 4
+                        ELSE NULL
+                    END AS character_maximum_length
                 FROM
                     pg_attribute a
                 JOIN
@@ -133,7 +120,7 @@ func (m *Model) Migrate() error {
                 WHERE
                     a.attnum > 0 AND NOT a.attisdropped AND c.relname = '%s' AND n.nspname = '%s'
                 ORDER BY
-                    a.attnum;`, m.Name, "public")
+                    a.attnum`, m.Name, "public")
 	var oldColumns []*Column
 	rows, err := ActiveDB.Query(statement)
 	if err != nil {
@@ -148,7 +135,9 @@ func (m *Model) Migrate() error {
 		column.model = m
 		var columnName, columnKind string
 		var columnPrimaryKey, columnUnique, columnNullable bool
-		err := rows.Scan(&columnName, &columnNullable, &columnPrimaryKey, &columnUnique, &columnKind)
+		var maxLength sql.NullInt64
+
+		err := rows.Scan(&columnName, &columnNullable, &columnPrimaryKey, &columnUnique, &columnKind, &maxLength)
 		if err != nil {
 			return err
 		}
@@ -158,9 +147,13 @@ func (m *Model) Migrate() error {
 		column.NULLABLE = columnNullable
 		switch columnKind {
 		case "int4", "int8", "serial", "bigserial":
-			column.Kind = IntegerField
+			column.Kind = IntegerField{}
 		case "text", "varchar":
-			column.Kind = TextField
+			if maxLength.Valid {
+				column.Kind = TextField{MaximumLength: uint(maxLength.Int64)}
+			} else {
+				column.Kind = TextField{}
+			}
 		default:
 			// Default case can be expanded to handle other types
 			return UnknownTypeFromDatabase(columnKind)
@@ -246,7 +239,7 @@ func (m *Model) New(s any) (*Row, error) {
 			if validator.Func == nil {
 				return nil, ValidatorHasNoFunc(vn, column.Name)
 			}
-			if validator.Kind != column.Kind {
+			if validator.Kind.String() != column.Kind.String() {
 				return nil, ValidatorCannotBeUsedForKind(vn, validator.Kind, column.Name, column.Kind)
 			}
 			ok, err := validator.Func(field.Interface())

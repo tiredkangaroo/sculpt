@@ -31,6 +31,18 @@ func boolFromTag(tag_name string, tag reflect.StructTag, _default bool) bool {
 	return v
 }
 
+func uintFromTag(tag_name string, tag reflect.StructTag, _default uint) uint {
+	tag_value := tag.Get(tag_name)
+	if tag_value == "" {
+		return _default
+	}
+	v, err := strconv.ParseUint(tag_value, 10, 64)
+	if err != nil {
+		panic(tag_name + " field must be int")
+	}
+	return uint(v)
+}
+
 func arrayFromTag(tag_name string, tag reflect.StructTag) []string {
 	tag_value := tag.Get(tag_name)
 	if tag_value == "" {
@@ -40,36 +52,25 @@ func arrayFromTag(tag_name string, tag reflect.StructTag) []string {
 	return strings.Split(tag_value, ",")
 }
 
-func kindToSQL(k any) (string, error) {
-	switch k {
-	case IntegerField:
+func kindToSQL(k Field) (string, error) {
+	switch k.String() {
+	case "IntegerField":
 		return "int", nil
-	case TextField:
+	case "TextField":
 		return "varchar(4096)", nil
 	default:
 		return "", fmt.Errorf("kind is not recognized")
 	}
 }
 
-func kindToRefectKind(k any) reflect.Kind {
-	switch k {
-	case IntegerField:
+func kindToRefectKind(k Field) reflect.Kind {
+	switch k.String() {
+	case "IntegerField":
 		return reflect.Int
-	case TextField:
+	case "TextField":
 		return reflect.String
 	}
 	return reflect.TypeOf(k).Kind()
-}
-
-func kindToString(k any) string {
-	switch k {
-	case TextField:
-		return "TextField"
-	case IntegerField:
-		return "IntegerField"
-	default:
-		return "Undefined"
-	}
 }
 
 func sliceContains[T comparable](slice []T, item T) bool {
@@ -122,15 +123,6 @@ func extraColumnProperties(column Column) (statement string) {
 	return
 }
 
-func fieldToString(kind Field) (s string) {
-	switch kind {
-	case TextField:
-		s = "textfield"
-	case IntegerField:
-		s = "integerfield"
-	}
-	return
-}
 func anyToSQLString(value any) (string, error) {
 	switch v := value.(type) {
 	case string:
