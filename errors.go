@@ -35,6 +35,10 @@ func ValidatorIsNil(validatorName string, columnName string) error {
 	return fmt.Errorf("validator %s is nil. cannot validate column %s.", validatorName, columnName)
 }
 
+func ValidatorDoesNotExist(vn string, columnName string) error {
+	return fmt.Errorf("column %s has validator %s but it is not registered.", columnName, vn)
+}
+
 func ValidatorHasNoFunc(validatorName string, columnName string) error {
 	return fmt.Errorf("validator %s has no function attached. cannot validate column %s.", validatorName, columnName)
 }

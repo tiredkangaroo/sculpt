@@ -10,7 +10,30 @@ type Row struct {
 	Values map[string]any
 }
 
-func (r *Row) Save() error {
+func (r *Row) runValidations() error {
+	for _, column := range r.Model.Columns {
+		valueForColumn := r.Values[column.Name]
+		for _, vn := range column.Validations {
+			validator, ok := registeredValidators[vn]
+			if !ok {
+				return ValidatorDoesNotExist(vn, column.Name)
+			}
+			if validator.Func == nil {
+				return ValidatorHasNoFunc(vn, column.Name)
+			}
+			if validator.Kind.String() != column.Kind.String() {
+				return ValidatorCannotBeUsedForKind(vn, validator.Kind, column.Name, column.Kind)
+			}
+			err := validator.Func(valueForColumn)
+			if err != nil {
+				return ValidationFailed(vn, column.Name, valueForColumn, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (r *Row) save() error {
 	statement := fmt.Sprintf(`INSERT INTO "%s" (`, r.Model.Name)
 	sp2 := "VALUES ("
 
@@ -48,4 +71,16 @@ func (r *Row) Save() error {
 	statement += ";"
 	_, err := ActiveDB.Execute(statement)
 	return err
+}
+
+func (r *Row) Save() error {
+	err := r.runValidations()
+	if err != nil {
+		return err
+	}
+	return r.save()
+}
+
+func (r *Row) SaveWithForce() error {
+	return r.save()
 }

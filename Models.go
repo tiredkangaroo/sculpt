@@ -281,21 +281,6 @@ func (m *Model) New(s any) (*Row, error) {
 		} else {
 			newRow.Values[column.Name] = field.Interface()
 		}
-		// FIXME: validations should be run on save
-		for _, vn := range column.Validations { // run validation
-			validator := registeredValidators[vn]
-			if validator.Func == nil {
-				return nil, ValidatorHasNoFunc(vn, column.Name)
-			}
-			if validator.Kind.String() != column.Kind.String() {
-				return nil, ValidatorCannotBeUsedForKind(vn, validator.Kind, column.Name, column.Kind)
-			}
-			ok, err := validator.Func(field.Interface())
-			if !ok {
-				return nil, ValidationFailed(vn, column.Name, field.Interface(), err)
-			}
-			LogDebug("Validator:", "validation %s on column %s passed (input: %s)", vn, column.Name, field.Interface())
-		}
 	}
 	return newRow, nil
 }
