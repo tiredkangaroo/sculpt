@@ -59,3 +59,7 @@ func UnknownTypeFromDatabase(_type string) error {
 func StructNotInRegistry(operation string, structName string) error {
 	return fmt.Errorf("attempted to %s with unregistered model %s", operation, structName)
 }
+
+func QueryOnColumnThatDoesNotExist(modelName string, columnName string) error {
+	return fmt.Errorf("attempted to query on column %s, but it does not exist on model %s", columnName, modelName)
+}

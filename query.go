@@ -68,79 +68,85 @@ func In(name string, value ...any) Condition {
 	return Condition{S: statement, A: value}
 }
 
-func rowToSchema(schema reflect.Type, m *Model, columns []string, rows *sql.Rows) (*reflect.Value, error) {
+func valuesToSchema(columns []*Column, values []any, schema reflect.Type) (*reflect.Value, error) {
 	if schema.Kind() == reflect.Pointer {
 		schema = schema.Elem()
 	}
 	newSchema := reflect.New(schema)
-	var values []any
-	for _, c := range columns {
-		field, _ := schema.FieldByName(c)
-		v := reflect.Zero(field.Type).Interface()
-		values = append(values, &v)
+	j := 0
+	for j < len(columns) {
+		v := values[j]
+		column := columns[j]
+		cname := columns[j].Name
+		field := newSchema.Elem().FieldByName(cname)
+		fmt.Println("on", newSchema.Elem().Type().Name(), "looking up", cname)
+		if column.Kind.String() == "ReferenceField" {
+			ck := column.Kind.(ReferenceField)
+			ckrcl := len(ck.References.Columns) + 1
+			ns, err := valuesToSchema(columns[j+1:j+ckrcl], values[j+1:j+ckrcl], reflect.TypeOf(ck.References.raw))
+			if err != nil {
+				return nil, err
+			}
+			j += ckrcl
+			field.Set(*ns)
+			continue
+		}
+		vD := *v.(*any)
+		vDT := reflect.TypeOf(vD)
+		switch vDA := vD.(type) {
+		case int, int8, int16, int32, int64:
+			switch column.Kind.String() {
+			case "IntegerField", "ReferenceField":
+			default:
+				return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
+			}
+			up := unsafe.Pointer(&v)
+			i64 := (*int64)(up)
+			field.SetInt(*i64)
+		case bool:
+			if column.Kind.String() != "BooleanField" {
+				return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
+			}
+			field.SetBool(vDA)
+		case string:
+			if column.Kind.String() != "TextField" {
+				return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
+			}
+			field.SetString(vDA)
+		default:
+			ok := reflect.TypeOf(vD).AssignableTo(field.Type())
+			if !ok {
+				return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
+			}
+			field.Set(reflect.ValueOf(vD))
+		}
+		j += 1
+	}
+	return &newSchema, nil
+}
+func rowToSchema(schema reflect.Type, m *Model, columns []*Column, rows *sql.Rows) (*reflect.Value, error) {
+	if schema.Kind() == reflect.Pointer {
+		schema = schema.Elem()
+	}
+	values := make([]any, len(columns))
+	for i, c := range columns {
+		var fieldType reflect.Type
+		if c.model.Name == schema.Name() {
+			field, _ := schema.FieldByName(c.Name)
+			fieldType = field.Type
+		} else {
+			field, _ := reflect.TypeOf(c.model.raw).Elem().FieldByName(c.Name)
+			fieldType = field.Type
+		}
+		fmt.Println("at index", i, "schema", schema.Name(), "column", c.Name)
+		v := reflect.Zero(fieldType).Interface()
+		values[i] = &v
 	}
 	err := rows.Scan(values...)
 	if err != nil {
 		return nil, err
 	}
-	for j, v := range values {
-		cname := columns[j]
-		column := getColumnByName(m, cname)
-		field := newSchema.Elem().FieldByName(cname)
-		vD := *v.(*any)
-		if column.Kind.String() == "ReferenceField" {
-			ck := column.Kind.(ReferenceField)
-			referencedRows, err := ActiveDB.Query(
-				fmt.Sprintf(
-					`SELECT * FROM "%s" WHERE "%s" = $1;`,
-					ck.References.Name,
-					ck.References.PrimaryKeyColumn.Name,
-				),
-				vD)
-			if err != nil {
-				return nil, err
-			}
-			nc := []string{}
-			for _, c := range ck.References.Columns {
-				nc = append(nc, c.Name)
-			}
-			for referencedRows.Next() {
-				s, err := rowToSchema(field.Type(), ck.References, nc, referencedRows)
-				if err != nil {
-					return nil, err
-				}
-				field.Set(*s)
-			}
-		} else {
-			vDT := reflect.TypeOf(vD)
-			switch vDA := vD.(type) {
-			case int, int8, int16, int32, int64:
-				if column.Kind.String() != "IntegerField" {
-					return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
-				}
-				up := unsafe.Pointer(&v)
-				i64 := (*int64)(up)
-				field.SetInt(*i64)
-			case bool:
-				if column.Kind.String() != "BooleanField" {
-					return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
-				}
-				field.SetBool(vDA)
-			case string:
-				if column.Kind.String() != "TextField" {
-					return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
-				}
-				field.SetString(vDA)
-			default:
-				ok := reflect.TypeOf(vD).AssignableTo(field.Type())
-				if !ok {
-					return nil, FieldTypeMismatchGot(cname, field.Type().Kind().String(), vDT.Kind().String())
-				}
-				field.Set(reflect.ValueOf(vD))
-			}
-		}
-	}
-	return &newSchema, nil
+	return valuesToSchema(columns, values, schema)
 }
 
 // RunQuery runs the query specified on the model.
@@ -171,13 +177,47 @@ func RunQuery[I any](m *Model, query Query) ([]I, error) {
 			query.Columns = append(query.Columns, c.Name)
 		}
 	}
+	innerJoins := ""
+	qcl := len(query.Columns)
+	queriedColumns := []*Column{}
 	for i, c := range query.Columns {
 		statement += fmt.Sprintf(`"%s"`, c)
-		if i+1 < len(query.Columns) {
+		var column Column
+		queriedColumns = append(queriedColumns, &column)
+		for _, col := range m.Columns {
+			if col.Name == c {
+				column = *col
+				fmt.Println("set column", col.Name)
+				if col.Kind.String() == "ReferenceField" {
+					ck := col.Kind.(ReferenceField)
+					o := fmt.Sprintf(`"%s"."%s"="%s"."%s"`, m.Name, c, ck.References.Name, ck.References.PrimaryKeyColumn.Name)
+					ijs := fmt.Sprintf(` INNER JOIN "%s" ON %s`, ck.References.Name, o)
+					innerJoins += ijs
+					for j, ckrcc := range ck.References.Columns {
+						if j == 0 {
+							fmt.Println(ckrcc.Name, "gets a comma before it")
+							statement += ", "
+						}
+						statement += fmt.Sprintf(`"%s"`, ckrcc.Name)
+						if j+1 < len(ck.References.Columns) {
+							statement += `, `
+						}
+						queriedColumns = append(queriedColumns, ckrcc)
+					}
+				}
+				break
+			}
+		}
+		// if column == nil { //not found
+		// 	return nil, QueryOnColumnThatDoesNotExist(m.Name, c)
+		// }
+		if i+1 < qcl {
 			statement += `, `
 		}
 	}
+	fmt.Println(queriedColumns)
 	statement += ` FROM ` + `"` + m.Name + `"`
+	statement += innerJoins
 	sa, a := buildWhere(query)
 	statement += sa
 	arguments = append(arguments, a...)
@@ -192,7 +232,7 @@ func RunQuery[I any](m *Model, query Query) ([]I, error) {
 
 	var schemas []I
 	for rows.Next() {
-		newSchema, err := rowToSchema(st, m, query.Columns, rows)
+		newSchema, err := rowToSchema(st, m, queriedColumns, rows)
 		if err != nil {
 			return []I{}, err
 		}
