@@ -80,10 +80,10 @@ func main() {
 		},
 	})
 	fmt.Println(time.Since(start).Microseconds())
-
 	if err != nil {
 		sculpt.LogError(err.Error())
 		return
 	}
+
 	fmt.Println(tasks[0].User)
 }
