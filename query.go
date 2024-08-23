@@ -4,13 +4,17 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"strings"
 	"unsafe"
 )
 
 // FIXME: do not require Condition to be joined
 // with and. allow something like or as well.
 
-type Condition = string
+type Condition struct {
+	S string
+	A []any
+}
 
 type Query struct {
 	// Columns specifies which columns to return.
@@ -24,83 +28,44 @@ type Query struct {
 }
 
 func EqualTo(name string, value any) Condition {
-	v, err := anyToSQLString(value)
-	if err != nil {
-		panic(err.Error())
-	}
-	return fmt.Sprintf(`"%s" = %s`, name, v)
+	return Condition{S: fmt.Sprintf(`"%s" = *!`, name), A: []any{value}}
 }
 
 func GreaterThan(name string, value any) Condition {
-	v, err := anyToSQLString(value)
-	if err != nil {
-		panic(err.Error())
-	}
-	return fmt.Sprintf(`"%s" > %s`, name, v)
+	return Condition{S: fmt.Sprintf(`"%s" > *!`, name), A: []any{value}}
 }
 
 func LessThan(name string, value any) Condition {
-	v, err := anyToSQLString(value)
-	if err != nil {
-		panic(err.Error())
-	}
-	return fmt.Sprintf(`"%s" < %s`, name, v)
+	return Condition{S: fmt.Sprintf(`"%s" < *!`, name), A: []any{value}}
 }
 
 func GreaterEqualOrEqualTo(name string, value any) Condition {
-	v, err := anyToSQLString(value)
-	if err != nil {
-		panic(err.Error())
-	}
-	return fmt.Sprintf(`"%s" >= %s`, name, v)
+	return Condition{S: fmt.Sprintf(`"%s" >= *!`, name), A: []any{value}}
 }
 
 func LessThanOrEqualTo(name string, value any) Condition {
-	v, err := anyToSQLString(value)
-	if err != nil {
-		panic(err.Error())
-	}
-	return fmt.Sprintf(`"%s" <= %s`, name, v)
+	return Condition{S: fmt.Sprintf(`"%s" <= *!`, name), A: []any{value}}
 }
 
 func NotEqualTo(name string, value any) Condition {
-	v, err := anyToSQLString(value)
-	if err != nil {
-		panic(err.Error())
-	}
-	return fmt.Sprintf(`"%s" <> %s`, name, v)
+	return Condition{S: fmt.Sprintf(`"%s" <> *!`, name), A: []any{value}}
 }
 
 func Between(name string, range1 any, range2 any) Condition {
-	v, err := anyToSQLString(range1)
-	if err != nil {
-		panic(err.Error())
-	}
-	v2, err := anyToSQLString(range2)
-	if err != nil {
-		panic(err.Error())
-	}
-	return fmt.Sprintf(`"%s" BETWEEN %s AND %s`, name, v, v2)
+	return Condition{S: fmt.Sprintf(`"%s" BETWEEN *! AND *!`, name), A: []any{range1, range2}}
 }
 
 func Like(name string, value string) Condition {
-	return fmt.Sprintf(`"%s" LIKE %s`, name, value)
+	return Condition{S: fmt.Sprintf(`"%s" LIKE *!`, name), A: []any{value}}
 }
 
 func In(name string, value ...any) Condition {
-	statement := fmt.Sprintf(`"%s" IN (`, name)
-	for i, val := range value {
-		v, err := anyToSQLString(val)
-		if err != nil {
-			panic(err.Error())
-		}
-		statement += v
-		if i+1 < len(value) {
-			statement += `, `
-		}
+	placeholders := make([]string, len(value))
+	for i := range value {
+		placeholders[i] = fmt.Sprintf("*!", i+1)
 	}
-	statement += `)`
-	return statement
+	statement := fmt.Sprintf(`"%s" IN (%s)`, name, strings.Join(placeholders, ", "))
+	return Condition{S: statement, A: value}
 }
 
 func rowToSchema(schema reflect.Type, m *Model, columns []string, rows *sql.Rows) (*reflect.Value, error) {
@@ -127,11 +92,11 @@ func rowToSchema(schema reflect.Type, m *Model, columns []string, rows *sql.Rows
 			ck := column.Kind.(ReferenceField)
 			referencedRows, err := ActiveDB.Query(
 				fmt.Sprintf(
-					`SELECT * FROM "%s" WHERE "%s" = '%v';`,
+					`SELECT * FROM "%s" WHERE "%s" = $1;`,
 					ck.References.Name,
 					ck.References.PrimaryKeyColumn.Name,
-					vD),
-			)
+				),
+				vD)
 			if err != nil {
 				return nil, err
 			}
@@ -197,6 +162,7 @@ func RunQuery[I any](m *Model, query Query) ([]I, error) {
 	sv = sv.Elem()
 
 	statement := `SELECT `
+	arguments := []any{}
 	if query.Distinct {
 		statement += `DISTINCT `
 	}
@@ -212,9 +178,13 @@ func RunQuery[I any](m *Model, query Query) ([]I, error) {
 		}
 	}
 	statement += ` FROM ` + `"` + m.Name + `"`
-	statement += buildWhere(query)
+	sa, a := buildWhere(query)
+	statement += sa
+	arguments = append(arguments, a...)
+
 	statement += `;`
-	rows, err := ActiveDB.Query(statement)
+	statement = replaceStatementPlaceholders(statement) // replaces *! in the WHERE clauses with $1, $2, etc..
+	rows, err := ActiveDB.Query(statement, arguments...)
 	if err != nil {
 		return []I{}, err
 	}

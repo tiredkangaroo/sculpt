@@ -127,37 +127,32 @@ func extraColumnProperties(column Column) (statement string) {
 	return
 }
 
-func anyToSQLString(value any) (string, error) {
-	switch v := value.(type) {
-	case string:
-		return fmt.Sprintf("'%s'", v), nil
-	case int:
-		return fmt.Sprintf("%d", v), nil
-	case interface{}:
-		t := reflect.TypeOf(value)
-		vv := reflect.ValueOf(v)
-		if t.Kind() == reflect.Pointer {
-			t = t.Elem()
-			vv = vv.Elem()
-		}
-		m, ok := ModelRegistry[t.Name()]
-		if !ok {
-			return "", StructNotInRegistry("query a reference", t.Name())
-		}
-		if m.PrimaryKeyColumn == nil {
-			return "", fmt.Errorf("cannot query a reference where the 'reference' does not have a primary key")
-		}
-		return fmt.Sprintf("'%v'", vv.FieldByName(m.PrimaryKeyColumn.Name).Interface()), nil
-	default:
-		return "", fmt.Errorf("type not supported")
-	}
-}
-
-func buildWhere(query Query) (statement string) {
+func buildWhere(query Query) (statement string, arguments []any) {
 	if len(query.Conditions) != 0 {
 		statement += ` WHERE `
 		for i, c := range query.Conditions {
-			statement += c
+			for _, a := range c.A {
+				switch a.(type) {
+				case interface{}:
+					t := reflect.TypeOf(a)
+					av := reflect.ValueOf(a)
+					if t.Kind() == reflect.Pointer {
+						t = t.Elem()
+						av = av.Elem()
+					}
+					m, ok := ModelRegistry[t.Name()]
+					if !ok {
+						panic(StructNotInRegistry("query a reference", t.Name()))
+					}
+					if m.PrimaryKeyColumn == nil {
+						panic("cannot query a reference where the 'reference' does not have a primary key")
+					}
+					arguments = append(arguments, av.FieldByName(m.PrimaryKeyColumn.Name).Interface())
+				default:
+					arguments = append(arguments, a)
+				}
+			}
+			statement += c.S
 			if i+1 < len(query.Conditions) {
 				statement += ` AND `
 			}
@@ -175,4 +170,20 @@ func getColumnByName(m *Model, name string) *Column {
 		}
 	}
 	return column
+}
+
+func replaceStatementPlaceholders(query string) string {
+	var builder strings.Builder
+	counter := 1
+	for i := 0; i < len(query); i++ {
+		if i < len(query)-1 && query[i] == '*' && query[i+1] == '!' {
+			builder.WriteString(fmt.Sprintf("$%d", counter))
+			counter++
+			i++
+		} else {
+			builder.WriteByte(query[i])
+		}
+	}
+
+	return builder.String()
 }

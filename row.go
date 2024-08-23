@@ -35,15 +35,15 @@ func (r *Row) runValidations() error {
 
 func (r *Row) save() error {
 	statement := fmt.Sprintf(`INSERT INTO "%s" (`, r.Model.Name)
+	statementArguments := []any{}
 	sp2 := "VALUES ("
 
 	for i, c := range r.Model.Columns {
 		statement += `"` + c.Name + `"`
+		sp2 += fmt.Sprintf("$%d", i+1) // $1, $2, $3, etc. (added 1 to i because $0 probably isn't allowed)
 		switch c.Kind.String() {
-		case "TextField":
-			sp2 += fmt.Sprintf(`'%s'`, r.Values[c.Name])
-		case "IntegerField":
-			sp2 += fmt.Sprintf("%d", r.Values[c.Name])
+		case "TextField", "IntegerField":
+			statementArguments = append(statementArguments, r.Values[c.Name])
 		case "ReferenceField":
 			var vf reflect.Value
 			if c.NULLABLE {
@@ -54,11 +54,7 @@ func (r *Row) save() error {
 				vf = reflect.ValueOf(value).Elem()
 			}
 			field := vf.FieldByName(c.Kind.(ReferenceField).References.PrimaryKeyColumn.Name)
-			valueSQL, err := anyToSQLString(field.Interface())
-			if err != nil {
-				return err
-			}
-			sp2 += valueSQL
+			statementArguments = append(statementArguments, field.Interface())
 		}
 		if i+1 < len(r.Model.Columns) {
 			statement += ","
@@ -69,7 +65,8 @@ func (r *Row) save() error {
 	sp2 += ") "
 	statement += sp2
 	statement += ";"
-	_, err := ActiveDB.Execute(statement)
+	fmt.Println(statement, statementArguments)
+	_, err := ActiveDB.Execute(statement, statementArguments...)
 	return err
 }
 

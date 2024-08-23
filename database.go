@@ -71,7 +71,7 @@ func (d *Database) Execute(statement string, args ...any) (sql.Result, error) {
 	}
 
 	re := regexp.MustCompile(`\$[0-9]+`)
-	output := re.ReplaceAllString(statement, "%s")
+	output := re.ReplaceAllString(statement, "%v")
 	LogDebug("Database:", output, args...)
 
 	res, err := d.SQLDatabase.Exec(statement, args...)
@@ -87,7 +87,7 @@ func (d *Database) Query(query string, args ...any) (*sql.Rows, error) {
 	}
 
 	re := regexp.MustCompile(`\$[0-9]+`)
-	output := re.ReplaceAllString(query, "%s")
+	output := re.ReplaceAllString(query, "%v")
 	LogDebug("Database:", output, args...)
 
 	res, err := d.SQLDatabase.Query(query, args...)

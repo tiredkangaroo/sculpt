@@ -243,7 +243,10 @@ func (m *Model) Migrate() error {
 }
 
 func (m *Model) Delete(query Query) (err error) {
-	_, err = ActiveDB.Execute(fmt.Sprintf(`DELETE FROM "%s"%s;`, m.Name, buildWhere(query)))
+	w, a := buildWhere(query)
+	statement := fmt.Sprintf(`DELETE FROM "%s"%s`, m.Name, w)
+	statement = replaceStatementPlaceholders(statement)
+	_, err = ActiveDB.Execute(statement, a...)
 	return
 }
 
