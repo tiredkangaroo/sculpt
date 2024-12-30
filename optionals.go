@@ -1,34 +1,41 @@
 package sculpt
 
-import "reflect"
+import (
+	"database/sql"
+	"reflect"
+)
 
 // Optional is used for columns that can be nil.
 type Optional[T any] struct {
-	v T
-	a bool
+	n sql.Null[T]
 }
 
 // Nil returns whether the optional is nil.
 func (o Optional[T]) Nil() bool {
-	return !o.a
+	return !o.n.Valid
 }
 
-// Value returns the value of the optional.
+// Value returns the value of the optional. It panics if the optional
+// is nil.
 func (o Optional[T]) Value() T {
 	if o.Nil() {
 		panic("optional is nil")
 	}
-	return o.v
+	return o.n.V
 }
 
 func (o *Optional[T]) Set(v T) {
-	o.a = false
-	o.v = v
+	o.n.Valid = true
+	o.n.V = v
+}
+
+func (o *Optional[T]) Scan(v any) error {
+	return o.n.Scan(v)
 }
 
 // OptionalValue returns a non-nil optional value.
 func OptionalValue[T any](v T) Optional[T] {
-	return Optional[T]{v: v, a: false}
+	return Optional[T]{n: sql.Null[T]{V: v, Valid: true}}
 }
 
 // isOptional checks if a type is an Optional.
@@ -39,14 +46,13 @@ func isOptional(t reflect.Type) bool {
 	}
 
 	// Verify the struct has exactly two fields
-	if t.NumField() != 2 {
+	if t.NumField() != 1 {
 		return false
 	}
 
 	// Check fields "v" and "a" exist and have the expected types
-	vField := t.Field(0)
-	aField := t.Field(1)
-	if vField.Name != "v" || aField.Name != "a" || aField.Type.Kind() != reflect.Bool {
+	nField := t.Field(0)
+	if nField.Name != "n" && nField.Type.Kind() != reflect.Struct && nField.Type.Implements(reflect.TypeOf((*sql.Scanner)(nil)).Elem()) {
 		return false
 	}
 
@@ -56,12 +62,19 @@ func isOptional(t reflect.Type) bool {
 		return false
 	}
 
+	// why is there a parameter in for Value? because the Value method has
+	// a generic parameter
 	valueMethod, ok2 := t.MethodByName("Value")
 	if !ok2 || valueMethod.Type.NumIn() != 1 || valueMethod.Type.NumOut() != 1 {
 		return false
 	}
 
-	setMethod, ok3 := t.MethodByName("Set")
+	// why reflect.PointerTo? because the Set method is a pointer receiver
+	// and we need to get the method from the pointer receiver
+	//
+	// why setMethod.Type.NumIn() != 2? because the Set method has two arguments
+	// the value, and the generic
+	setMethod, ok3 := reflect.PointerTo(t).MethodByName("Set")
 	if !ok3 || setMethod.Type.NumIn() != 2 || setMethod.Type.NumOut() != 0 {
 		return false
 	}

@@ -3,9 +3,10 @@ package sculpt
 import (
 	"fmt"
 	"reflect"
-	"sculpt/internals/sql"
 	"slices"
 	"strings"
+
+	"github.com/tiredkangaroo/sculpt/internals/sql"
 )
 
 type Query[T any] struct {
@@ -142,11 +143,7 @@ func (q *Query[T]) Do() ([]T, error) {
 	for rows.Next() {
 		values := make([]any, len(q.model.columns))
 		for i, column := range q.model.columns {
-			if column.nullable {
-				values[i] = reflect.New(optionalType(column.t)).Interface()
-			} else {
-				values[i] = reflect.New(column.t).Interface()
-			}
+			values[i] = reflect.New(column.t).Interface()
 		}
 		err = rows.Scan(values...)
 		if err != nil {
@@ -155,12 +152,7 @@ func (q *Query[T]) Do() ([]T, error) {
 		result := reflect.New(reflect.TypeFor[T]()).Elem()
 		for i, c := range q.model.columns {
 			var value reflect.Value
-			if c.nullable {
-				value = reflect.New(c.t)
-				value.MethodByName("Set").Call([]reflect.Value{reflect.ValueOf(values[i]).Elem()})
-			} else {
-				value = reflect.ValueOf(values[i])
-			}
+			value = reflect.ValueOf(values[i])
 			result.FieldByName(c.name).Set(value.Elem())
 		}
 		r := result.Interface().(T) // literally impossible to fail

@@ -3,47 +3,61 @@ package main
 import (
 	"fmt"
 	"log"
-	"sculpt"
+	"net/mail"
+	"time"
+
+	"github.com/tiredkangaroo/sculpt"
 )
 
-type Task struct {
+type ExampleUser struct {
+	CreatedAt time.Time
+
 	ID    int `pk:"true" autoincrement:"true"`
-	Title sculpt.Optional[string]
+	Name  string
+	Email sculpt.Optional[string] `validators:"email"`
+}
+
+func handleError(err error, m string, a ...any) {
+	if err != nil {
+		log.Fatalf(fmt.Sprintf("error: %s. "+m, append([]any{err.Error()}, a...)))
+	}
 }
 
 func main() {
-	// connect
-	if err := sculpt.Connect("postgres://postgres:@localhost:5432/sculpt_example"); err != nil {
-		log.Fatal(err.Error())
-	}
-	// new
-	task, err := sculpt.New[Task]()
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-	// create
-	err = task.Create()
-	if err != nil {
-		log.Fatal(err.Error())
-	}
+	err := sculpt.Connect("postgres://postgres:@localhost:5432/sculpt_example?sslmode=disable")
+	defer sculpt.Close()
+	handleError(err, "connect error")
 
-	// save
-	t := Task{
-		Title: sculpt.OptionalValue("arrested development"),
-	}
-	if err := task.Save(t); err != nil {
-		log.Fatal(err.Error())
-	}
+	// register validators
+	sculpt.RegisterValidator("email", func(e string) (err error) {
+		fmt.Println("Validating email:", e)
+		_, err = mail.ParseAddress(e)
+		return
+	})
 
-	// query
-	tasks, err := task.Query().Conditions(
-		sculpt.EqualsTo("id", "2"),
+	// create a new model
+	userModel, err := sculpt.New[ExampleUser]()
+	handleError(err, "new model error")
+
+	handleError(userModel.Create(), "create table error")
+
+	// query the model for every user but John Doe
+	users, err := userModel.Query().Conditions(
+		sculpt.NotEqualsTo("Name", "John Doe"),
 	).Do()
-	if err != nil {
-		log.Fatal(err.Error())
+	handleError(err, "query error")
+
+	// loop through the users, welcoming them
+	for _, user := range users {
+		log.Printf("Welcome, %s (ID: %d)! You've been here for: %v.", user.Name, user.ID, time.Since(user.CreatedAt))
 	}
 
-	for _, t := range tasks {
-		fmt.Println(t)
-	}
+	// save a new user
+	err = userModel.Save(ExampleUser{
+		CreatedAt: time.Now(),
+		Name:      "Ajitesh Kumar",
+		Email:     sculpt.OptionalValue("ajinest6@gmail.com"),
+	})
+	handleError(err, "save error")
+
 }

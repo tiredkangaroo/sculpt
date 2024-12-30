@@ -3,7 +3,8 @@ package sculpt
 import (
 	"fmt"
 	"reflect"
-	"sculpt/internals/sql"
+
+	"github.com/tiredkangaroo/sculpt/internals/sql"
 )
 
 // Model represents a table in the database.
@@ -18,7 +19,7 @@ func (m *Model[T]) Query() *Query[T] {
 	return &Query[T]{model: m}
 }
 
-// Save uses the Postgres connection to save the struct into to the database.
+// Save uses the Postgres connection to save the struct into to the database table.
 func (m *Model[T]) Save(v T) error {
 	statement := fmt.Sprintf(`INSERT INTO %s (`, m.name)
 	values_statement := `VALUES (`
@@ -43,6 +44,7 @@ func (m *Model[T]) Save(v T) error {
 			values_statement += `, `
 		}
 		field := rv.FieldByName(column.name)
+		var value any
 		if column.nullable {
 			// call the Optional.Nil method
 			nilcheck := field.MethodByName("Nil").Call([]reflect.Value{})
@@ -52,9 +54,16 @@ func (m *Model[T]) Save(v T) error {
 			}
 
 			v := field.MethodByName("Value").Call([]reflect.Value{}) // call the Optional.Value method
-			values = append(values, v[0].Interface())
+			value = v[0].Interface()
 		} else {
-			values = append(values, field.Interface())
+			value = field.Interface()
+		}
+		values = append(values, value)
+		for validator, rv := range column.validators {
+			err := validator.Validate(value, rv...)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	statement += `) `
@@ -88,7 +97,7 @@ func (m *Model[T]) Create() error {
 	return err
 }
 
-// New makes a new Model from a struct.
+// New makes a new Model from the struct passed through the type argument.
 func New[T any]() (*Model[T], error) {
 	rt := reflect.TypeFor[T]()
 	if rt.Kind() != reflect.Struct {

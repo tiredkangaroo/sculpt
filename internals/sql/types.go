@@ -2,6 +2,7 @@ package sql
 
 import (
 	"reflect"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -32,6 +33,10 @@ const (
 	ByteaType
 	// BooleanType represents the boolean type in PostgreSQL.
 	BooleanType
+	// TimestampType represents the timestamp type in PostgreSQL.
+	TimestampType
+	// IntervalType represents the interval type in PostgreSQL.
+	IntervalType
 	// UUIDType represents the UUID type in PostgreSQL.
 	UUIDType
 )
@@ -60,6 +65,10 @@ func (t Type) String() string {
 		return "bytea"
 	case BooleanType:
 		return "boolean"
+	case TimestampType:
+		return "timestamptz"
+	case IntervalType:
+		return "interval"
 	case UUIDType:
 		return "uuid"
 	default:
@@ -67,12 +76,9 @@ func (t Type) String() string {
 	}
 }
 
-func TypeFromGoType[T any](serial bool) Type {
-	t := reflect.TypeFor[T]()
-	return TypeFromReflectType(t, serial)
-}
-
-func ToReflectType(t Type) reflect.Type {
+// ReflectType returns a reflect.Type that corresponds to the SQL type. It is
+// a reverse of TypeFromReflectType. If the type is invalid, it returns nil.
+func (t Type) ReflectType() reflect.Type {
 	switch t {
 	case SmallintType, SmallSerialType:
 		return reflect.TypeFor[int16]()
@@ -90,6 +96,10 @@ func ToReflectType(t Type) reflect.Type {
 		return reflect.TypeFor[bool]()
 	case ByteaType:
 		return reflect.TypeFor[[]byte]()
+	case TimestampType:
+		return reflect.TypeFor[time.Time]()
+	case IntervalType:
+		return reflect.TypeFor[time.Duration]()
 	case UUIDType:
 		return reflect.TypeFor[uuid.UUID]()
 	default:
@@ -97,6 +107,9 @@ func ToReflectType(t Type) reflect.Type {
 	}
 }
 
+// TypeFromReflectType returns the SQL type that corresponds to the reflect.Type.
+// If serial is true (psql SERIAL), it will return the serial type that corresponds
+// to the reflect.Type. If the reflect.Type is not supported, it returns InvalidType.
 func TypeFromReflectType(t reflect.Type, serial bool) Type {
 	if serial {
 		switch t.Kind() {
@@ -129,6 +142,10 @@ func TypeFromReflectType(t reflect.Type, serial bool) Type {
 	switch t {
 	case reflect.TypeFor[[]byte]():
 		return ByteaType
+	case reflect.TypeFor[time.Time]():
+		return TimestampType
+	case reflect.TypeFor[time.Duration]():
+		return IntervalType
 	case reflect.TypeFor[uuid.UUID]():
 		return UUIDType
 	}
