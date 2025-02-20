@@ -101,7 +101,7 @@ func (m *Model[T]) Create() error {
 func New[T any]() (*Model[T], error) {
 	rt := reflect.TypeFor[T]()
 	if rt.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("T must be a struct")
+		return nil, fmt.Errorf("type parameter T must be a struct")
 	}
 	m := new(Model[T])
 

@@ -62,15 +62,15 @@ func RegisterValidator(name string, f any) error {
 		return fmt.Errorf("validator must be a function")
 	}
 	if t.NumIn() == 0 {
-		return fmt.Errorf("validator function must have at least one parameter. see documentation at: %s/validators.md.", DocsURL)
+		return fmt.Errorf("validator function must have at least one parameter")
 	}
 	if sql.TypeFromReflectType(t.In(0), false) == sql.InvalidType {
 		return fmt.Errorf(
-			"unsupported type for validator: %s. the first parameter for a validator function handles a value for a sculpt column. see documentation at: %s/validators.md.",
-			t.In(0), DocsURL)
+			"unsupported type for validator: %s. the first parameter for a validator function handles a value for a sculpt column",
+			t.In(0))
 	}
 	if t.NumOut() != 1 || t.Out(0) != reflect.TypeOf((*error)(nil)).Elem() {
-		return fmt.Errorf("validator function must return an error. see documentation at: %s/validators.md.", DocsURL)
+		return fmt.Errorf("validator function must return an error")
 	}
 
 	// p
@@ -81,7 +81,7 @@ func RegisterValidator(name string, f any) error {
 		case reflect.String, reflect.Int, reflect.Bool, reflect.Float64, reflect.Uint:
 			// do nothing
 		default:
-			return fmt.Errorf("unsupported type for validator argument: %s. see documentation at: %s/validators.md.", p[i], DocsURL)
+			return fmt.Errorf("unsupported type for validator argument: %s", p[i])
 		}
 	}
 
@@ -112,7 +112,7 @@ func validatorsFromTag(fieldt reflect.Type, tag string) (map[*Validator][]reflec
 			name = rs[0]
 			args = strings.Split(rs[1], ",")
 		default:
-			return nil, fmt.Errorf("improperly formed validator tag. see documentation at: %s/validators.md.", DocsURL)
+			return nil, fmt.Errorf("improperly formed validator tag")
 		}
 
 		validator, ok := validators[name]

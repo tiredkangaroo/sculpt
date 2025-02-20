@@ -82,7 +82,7 @@ func handleColumn(f reflect.StructField) (Column, error) {
 	// sqltype
 	c.sqltype = sql.TypeFromReflectType(f.Type, c.autoincrement)
 	if c.sqltype == sql.InvalidType {
-		return c, fmt.Errorf("unsupported type on column %s: %s. See documentation at: %s.", f.Name, f.Type.String(), DocsURL+"/columns.md")
+		return c, fmt.Errorf("unsupported type on column %s: %s", f.Name, f.Type.String())
 	}
 
 	// primary key

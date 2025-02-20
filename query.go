@@ -59,9 +59,7 @@ func (q *Query[T]) IncludeFields(f ...string) *Query[T] {
 // Conditions adds conditions to the query. These conditions are combined, in order to
 // specifically get the results that meet the criteria.
 func (q *Query[T]) Conditions(c ...Condition) *Query[T] {
-	for _, cd := range c {
-		q.conditions = append(q.conditions, cd)
-	}
+	q.conditions = append(q.conditions, c...)
 	return q
 }
 
@@ -151,8 +149,7 @@ func (q *Query[T]) Do() ([]T, error) {
 		}
 		result := reflect.New(reflect.TypeFor[T]()).Elem()
 		for i, c := range q.model.columns {
-			var value reflect.Value
-			value = reflect.ValueOf(values[i])
+			value := reflect.ValueOf(values[i])
 			result.FieldByName(c.name).Set(value.Elem())
 		}
 		r := result.Interface().(T) // literally impossible to fail
